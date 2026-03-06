@@ -1,11 +1,57 @@
-# ======================
-# 3. 予測実行
-# ======================
+import streamlit as st
+import pandas as pd
+import numpy as np
+from catboost import CatBoostClassifier, Pool
+
+# 1. ページ設定
+st.set_page_config(page_title="ローン審査AI", layout="centered")
+st.title("ローンデフォルト予測AI")
+
+# 2. モデル読み込み
+@st.cache_resource
+def load_my_model():
+    model = CatBoostClassifier()
+    model.load_model("catboost_model.cbm")
+    return model
+
+try:
+    model = load_my_model()
+    expected_features = model.feature_names_
+except Exception as e:
+    st.error(f"モデルの読み込みに失敗しました: {e}")
+    st.stop()
+
+# 3. 入力フォーム
+st.subheader("申請者情報の入力")
+
+# ここで st.form を定義
+with st.form("loan_form"):
+    col1, col2 = st.columns(2)
+
+    with col1:
+        gross = st.number_input("融資額 ($)", 0, 10000000, 50000)
+        sba = st.number_input("保証額 ($)", 0, 10000000, 30000)
+        year = st.number_input("承認年度", 1990, 2026, 2010)
+        rate = st.number_input("金利 (%)", 0.0, 30.0, 5.0)
+        term = st.number_input("返済期間 (月)", 1, 360, 120)
+        jobs = st.number_input("雇用人数", 0, 1000, 5)
+
+    with col2:
+        subprogram = st.text_input("ローンプログラム", "7(a)")
+        rate_type = st.selectbox("金利タイプ", ["Fixed", "Variable"])
+        sector = st.number_input("産業セクター (NAICS)", 1, 99, 44)
+        district = st.number_input("地区コード", 1, 60, 10)
+        business_type = st.text_input("企業形態", "CORPORATION")
+        business_age = st.selectbox("企業年齢", ["Startup", "Existing"])
+        revolver = st.selectbox("リボルビングローン", ["Y", "N"])
+        collateral = st.selectbox("担保の有無", ["Y", "N"])
+
+    # ここで submit 変数を定義
+    submit = st.form_submit_button("AI審査を開始")
+
+# 4. 予測実行 (submitが定義された後に実行)
 if submit:
-    # 1. データの作成（RevolverStatus を数値に変換するための準備）
-    # もしモデルが RevolverStatus を数値(Float)として期待しているなら、
-    # Y -> 1, N -> 0 のように変換して渡す必要があります。
-    
+    # 前回の修正に基づき、RevolverStatus を数値(float)に変換
     revolver_numeric = 1.0 if revolver == "Y" else 0.0
 
     input_data = {
@@ -20,22 +66,21 @@ if submit:
         "CongressionalDistrict": float(district),
         "BusinessType": str(business_type),
         "BusinessAge": str(business_age),
-        "RevolverStatus": revolver_numeric,  # ここを文字列から数値(float)に変更！
+        "RevolverStatus": float(revolver_numeric),
         "JobsSupported": float(jobs),
         "CollateralInd": str(collateral)
     }
 
     input_df = pd.DataFrame([input_data])
 
-    # 2. 列の順序をモデルに合わせる
+    # 列の順序をモデルに合わせる
     input_df = input_df.reindex(columns=expected_features)
 
-    # 3. 型の最終確認と強制変換
-    # 今回のエラーに基づき、RevolverStatus も数値列リストに含めます
+    # 数値列のリスト（CatBoostError対策）
     numeric_cols = [
         "GrossApproval", "SBAGuaranteedApproval", "ApprovalFiscalYear",
         "InitialInterestRate", "TermInMonths", "NaicsSector", 
-        "CongressionalDistrict", "JobsSupported", "RevolverStatus" # 追加
+        "CongressionalDistrict", "JobsSupported", "RevolverStatus"
     ]
 
     for col in input_df.columns:
@@ -44,17 +89,13 @@ if submit:
         else:
             input_df[col] = input_df[col].astype(str)
 
-    # 4. カテゴリ変数のインデックスを取得
+    # カテゴリ変数のインデックス取得
     cat_features_idx = [i for i, col in enumerate(input_df.columns) if input_df[col].dtype == 'object']
 
     try:
-        # Poolの作成
         pool = Pool(input_df, cat_features=cat_features_idx)
-        
-        # 予測
         proba = model.predict_proba(pool)[0][1]
 
-        # 結果表示
         st.markdown("---")
         st.subheader("審査結果")
         st.metric("デフォルト確率", f"{round(proba * 100, 2)} %")
@@ -66,4 +107,4 @@ if submit:
 
     except Exception as e:
         st.error(f"予測中にエラーが発生しました。")
-        st.write(f"エラー詳細: {e}")
+        st.write(f"詳細: {e}")
