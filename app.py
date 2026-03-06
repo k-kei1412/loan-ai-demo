@@ -19,7 +19,7 @@ def load_resources():
     # 過去データの読み込み（事例検索用）
     try:
         # train_data.csv が存在することを前提としています
-        train_df = pd.read_csv("train_data.csv")
+        train_df = pd.read_csv("train.csv")
     except Exception as e:
         st.error(f"警告: train_data.csv が見つかりません。事例表示機能は無効です。 ({e})")
         train_df = pd.DataFrame()
