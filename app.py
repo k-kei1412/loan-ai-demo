@@ -3,154 +3,96 @@ import pandas as pd
 import joblib
 from catboost import Pool
 
-# =========================
-# タイトル
-# =========================
-st.title("Loan Default Prediction AI")
+st.set_page_config(page_title="銀行ローン審査AI")
 
-st.write("ローン返済リスクを予測するAIデモ")
+st.title("🏦 銀行ローン審査AI")
 
-# =========================
+# =====================
 # モデル読み込み
-# =========================
+# =====================
+
 model = joblib.load("catboost_model.pkl")
 
-# =========================
+# =====================
+# モデル特徴量取得
+# =====================
+
+feature_names = model.feature_names_
+
+# =====================
 # 入力UI
-# =========================
+# =====================
 
-person_age = st.number_input("Age", min_value=18, max_value=100, value=30)
+with st.form("loan_form"):
 
-person_income = st.number_input(
-    "Annual Income",
-    min_value=0.0,
-    value=50000.0
-)
+    gross = st.number_input("融資額",1000,5000000,50000)
+    term = st.slider("返済期間(月)",12,360,120)
+    interest = st.slider("金利",1.0,20.0,8.0)
+    jobs = st.number_input("雇用人数",0,500,3)
 
-person_emp_length = st.number_input(
-    "Employment Length (years)",
-    min_value=0.0,
-    value=5.0
-)
+    sector = st.selectbox(
+        "業種",
+        [
+            "Accommodation_food services",
+            "Retail trade",
+            "Construction",
+            "Information",
+            "Manufacturing"
+        ]
+    )
 
-loan_amnt = st.number_input(
-    "Loan Amount",
-    min_value=0.0,
-    value=10000.0
-)
+    btype = st.selectbox(
+        "企業形態",
+        ["CORPORATION","SOLE PROPRIETORSHIP","PARTNERSHIP"]
+    )
 
-loan_int_rate = st.number_input(
-    "Interest Rate",
-    min_value=0.0,
-    value=10.0
-)
+    bage = st.selectbox(
+        "企業年齢",
+        [
+            "Startup, Loan Funds will Open Business",
+            "Existing or more than 2 years old"
+        ]
+    )
 
-loan_percent_income = st.number_input(
-    "Loan Percent Income",
-    min_value=0.0,
-    value=0.2
-)
+    submit = st.form_submit_button("AI審査")
 
-cb_person_cred_hist_length = st.number_input(
-    "Credit History Length",
-    min_value=0.0,
-    value=5.0
-)
+# =====================
+# 予測
+# =====================
 
-person_home_ownership = st.selectbox(
-    "Home Ownership",
-    ["RENT", "OWN", "MORTGAGE", "OTHER"]
-)
-
-loan_intent = st.selectbox(
-    "Loan Intent",
-    [
-        "EDUCATION",
-        "MEDICAL",
-        "VENTURE",
-        "PERSONAL",
-        "DEBTCONSOLIDATION",
-        "HOMEIMPROVEMENT"
-    ]
-)
-
-loan_grade = st.selectbox(
-    "Loan Grade",
-    ["A", "B", "C", "D", "E", "F", "G"]
-)
-
-cb_person_default_on_file = st.selectbox(
-    "Previous Default",
-    ["Y", "N"]
-)
-
-# =========================
-# 特徴量順序
-# =========================
-
-feature_order = [
-    "person_age",
-    "person_income",
-    "person_home_ownership",
-    "person_emp_length",
-    "loan_intent",
-    "loan_grade",
-    "loan_amnt",
-    "loan_int_rate",
-    "loan_percent_income",
-    "cb_person_default_on_file",
-    "cb_person_cred_hist_length"
-]
-
-# =========================
-# 予測ボタン
-# =========================
-
-if st.button("Predict"):
+if submit:
 
     input_dict = {
-        "person_age": float(person_age),
-        "person_income": float(person_income),
-        "person_home_ownership": person_home_ownership,
-        "person_emp_length": float(person_emp_length),
-        "loan_intent": loan_intent,
-        "loan_grade": loan_grade,
-        "loan_amnt": float(loan_amnt),
-        "loan_int_rate": float(loan_int_rate),
-        "loan_percent_income": float(loan_percent_income),
-        "cb_person_default_on_file": cb_person_default_on_file,
-        "cb_person_cred_hist_length": float(cb_person_cred_hist_length)
+        "GrossApproval":gross,
+        "SBAGuaranteedApproval":gross*0.75,
+        "InitialInterestRate":interest,
+        "TermInMonths":term,
+        "JobsSupported":jobs,
+        "NaicsSector":sector,
+        "BusinessType":btype,
+        "BusinessAge":bage,
+        "RevolverStatus":"N"
     }
 
     input_df = pd.DataFrame([input_dict])
 
-    input_df = input_df[feature_order]
+    # モデルの列順に合わせる
+    input_df = input_df.reindex(columns=feature_names)
 
-    # カテゴリ特徴量
-    cat_features = [
-        "person_home_ownership",
-        "loan_intent",
-        "loan_grade",
-        "cb_person_default_on_file"
-    ]
+    # カテゴリ列
+    cat_features = input_df.select_dtypes(include=["object"]).columns.tolist()
 
-    # CatBoost用Pool
     pool = Pool(input_df, cat_features=cat_features)
 
-    # 予測
-    prediction = model.predict(pool)[0]
-    probability = model.predict_proba(pool)[0][1]
+    proba = model.predict_proba(pool)[0][1]
 
-    # =========================
-    # 結果表示
-    # =========================
+    st.subheader("審査結果")
 
-    st.subheader("Prediction Result")
+    st.metric("デフォルト確率",f"{proba*100:.1f}%")
 
-    if prediction == 1:
-        st.error("High Default Risk")
+    if proba < 0.3:
+        st.success("融資承認")
+    elif proba < 0.6:
+        st.warning("追加審査")
     else:
-        st.success("Low Default Risk")
-
-    st.write("Default Probability")
-    st.write(f"{probability:.2%}")
+        st.error("融資拒否")
