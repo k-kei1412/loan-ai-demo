@@ -86,7 +86,7 @@ if submit:
         # --- 【新ロジック】実効リスク指数の計算 ---
         # AIの数学的予測(proba)と、現場の生データ(risk_pct)を統合
         # AIが0.0022%でも、過去実績が20%なら、指数は中間（あるいは実績重視）に跳ね上がる
-        risk_index = (proba * 40) + (risk_pct / 100 * 0.6) # AIの50倍と実績の50%をブレンド
+        risk_index = (proba * 20) + (risk_pct / 100 * 0.8) # AIの50倍と実績の50%をブレンド
         risk_index = min(risk_index, 1.0) # 最大1.0
 
         # --- 表示 ---
