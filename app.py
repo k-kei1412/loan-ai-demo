@@ -3,66 +3,60 @@ import pandas as pd
 import joblib
 from catboost import Pool
 
-st.set_page_config(page_title="銀行ローン審査AI")
+st.title("銀行ローン審査AI")
 
-st.title("🏦 銀行ローン審査AI")
-
-# =====================
+# ======================
 # モデル読み込み
-# =====================
+# ======================
 
 model = joblib.load("catboost_model.pkl")
 
-# =====================
-# モデル特徴量取得
-# =====================
+# ======================
+# 入力
+# ======================
 
-feature_names = model.feature_names_
+gross = st.number_input("融資額",1000,5000000,50000)
+term = st.slider("返済期間(月)",12,360,120)
+interest = st.slider("金利",1.0,20.0,8.0)
+jobs = st.number_input("雇用人数",0,500,3)
 
-# =====================
-# 入力UI
-# =====================
+sector = st.selectbox(
+    "業種",
+    [
+        "Accommodation_food services",
+        "Retail trade",
+        "Construction",
+        "Information",
+        "Manufacturing"
+    ]
+)
 
-with st.form("loan_form"):
+btype = st.selectbox(
+    "企業形態",
+    [
+        "CORPORATION",
+        "SOLE PROPRIETORSHIP",
+        "PARTNERSHIP"
+    ]
+)
 
-    gross = st.number_input("融資額",1000,5000000,50000)
-    term = st.slider("返済期間(月)",12,360,120)
-    interest = st.slider("金利",1.0,20.0,8.0)
-    jobs = st.number_input("雇用人数",0,500,3)
+bage = st.selectbox(
+    "企業年齢",
+    [
+        "Startup, Loan Funds will Open Business",
+        "Existing or more than 2 years old"
+    ]
+)
 
-    sector = st.selectbox(
-        "業種",
-        [
-            "Accommodation_food services",
-            "Retail trade",
-            "Construction",
-            "Information",
-            "Manufacturing"
-        ]
-    )
+predict = st.button("AI審査")
 
-    btype = st.selectbox(
-        "企業形態",
-        ["CORPORATION","SOLE PROPRIETORSHIP","PARTNERSHIP"]
-    )
-
-    bage = st.selectbox(
-        "企業年齢",
-        [
-            "Startup, Loan Funds will Open Business",
-            "Existing or more than 2 years old"
-        ]
-    )
-
-    submit = st.form_submit_button("AI審査")
-
-# =====================
+# ======================
 # 予測
-# =====================
+# ======================
 
-if submit:
+if predict:
 
-    input_dict = {
+    data = {
         "GrossApproval":gross,
         "SBAGuaranteedApproval":gross*0.75,
         "InitialInterestRate":interest,
@@ -74,13 +68,15 @@ if submit:
         "RevolverStatus":"N"
     }
 
-    input_df = pd.DataFrame([input_dict])
+    input_df = pd.DataFrame([data])
 
-    # モデルの列順に合わせる
-    input_df = input_df.reindex(columns=feature_names)
+    # モデルの特徴量順に揃える
+    feature_order = model.feature_names_
+
+    input_df = input_df.reindex(columns=feature_order)
 
     # カテゴリ列
-    cat_features = input_df.select_dtypes(include=["object"]).columns.tolist()
+    cat_features = input_df.select_dtypes(include="object").columns.tolist()
 
     pool = Pool(input_df, cat_features=cat_features)
 
@@ -88,7 +84,7 @@ if submit:
 
     st.subheader("審査結果")
 
-    st.metric("デフォルト確率",f"{proba*100:.1f}%")
+    st.write("デフォルト確率:", round(proba*100,1),"%")
 
     if proba < 0.3:
         st.success("融資承認")
