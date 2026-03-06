@@ -122,43 +122,20 @@ if submitted:
     st.success("AI解析を実行しました")
 
     # ==============================
-    # AI入力データ
-    # ==============================
+# AI入力データ
+# ==============================
 
-    input_df = pd.DataFrame({
+input_df = df.drop(columns=["LoanStatus"]).iloc[[0]].copy()
 
-        "id":[0],
-
-        "GrossApproval":[gross_val],
-
-        "SBAGuaranteedApproval":[gross_val*0.75],
-
-        "ApprovalFiscalYear":[2020],
-
-        "Subprogram":["7(a)"],
-
-        "InitialInterestRate":[interest_val],
-
-        "FixedOrVariableInterestInd":["F"],
-
-        "TermInMonths":[term_val],
-
-        "NaicsSector":[sector_val],
-
-        "CongressionalDistrict":[1],
-
-        "BusinessType":[business_type],
-
-        "BusinessAge":[business_age],
-
-        "RevolverStatus":["N"],
-
-        "JobsSupported":[jobs_val],
-
-        "CollateralInd":["N"]
-
-    })
-
+input_df["GrossApproval"] = gross_val
+input_df["SBAGuaranteedApproval"] = gross_val * 0.75
+input_df["TermInMonths"] = term_val
+input_df["InitialInterestRate"] = interest_val
+input_df["JobsSupported"] = jobs_val
+input_df["NaicsSector"] = sector_val
+input_df["BusinessType"] = business_type
+input_df["BusinessAge"] = business_age
+input_df["RevolverStatus"] = "N"
     # ==============================
     # 特徴量順を学習データと一致
     # ==============================
@@ -198,9 +175,9 @@ if submitted:
         value=f"{proba*100:.1f}%"
     )
 
-    if proba < 0.3:
+    if proba < 0.15:
         st.success("✅ 融資承認")
-    elif proba < 0.6:
+    elif proba < 0.35:
         st.warning("⚠️ 要追加審査")
     else:
         st.error("❌ 融資拒否")
