@@ -7,7 +7,7 @@ from sklearn.preprocessing import StandardScaler
 
 # 1. ページ設定
 st.set_page_config(page_title="ローン審査AI：究極完全体", layout="wide")
-st.title("🏦 ローンデフォルト予測 AIシステム [究極完全体・実務Ver]")
+st.title("🏦 中小企業向けローン返済予測")
 
 # 2. リソースの読み込み
 @st.cache_resource
@@ -86,7 +86,7 @@ if submit:
         # --- 【新ロジック】実効リスク指数の計算 ---
         # AIの数学的予測(proba)と、現場の生データ(risk_pct)を統合
         # AIが0.0022%でも、過去実績が20%なら、指数は中間（あるいは実績重視）に跳ね上がる
-        risk_index = (proba * 20) + (risk_pct / 100 * 0.8) # AIの50倍と実績の50%をブレンド
+        risk_index = (proba * 40) + (risk_pct / 100 * 0.6) # AIの50倍と実績の50%をブレンド
         risk_index = min(risk_index, 1.0) # 最大1.0
 
         # --- 表示 ---
@@ -101,7 +101,7 @@ if submit:
 
         with c2:
             st.metric("同業種・近傍の実績事故率", f"{risk_pct:.1f} %")
-            st.caption(f"類似事例10件中の事故発生率")
+            st.caption(f"類似事例50件中の事故発生率")
 
         with c3:
             st.metric("AI生データ (自信度)", f"{(1-proba)*100:.2f} %")
