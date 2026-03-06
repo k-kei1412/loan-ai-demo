@@ -127,17 +127,63 @@ if submitted:
 
     input_df = pd.DataFrame({
 
+        "id":[0],
+
         "GrossApproval":[gross_val],
+
         "SBAGuaranteedApproval":[gross_val*0.75],
+
+        "ApprovalFiscalYear":[2020],
+
+        "Subprogram":["7(a)"],
+
         "InitialInterestRate":[interest_val],
+
+        "FixedOrVariableInterestInd":["F"],
+
         "TermInMonths":[term_val],
-        "JobsSupported":[jobs_val],
+
         "NaicsSector":[sector_val],
+
+        "CongressionalDistrict":[1],
+
         "BusinessType":[business_type],
+
         "BusinessAge":[business_age],
-        "RevolverStatus":["N"]
+
+        "RevolverStatus":["N"],
+
+        "JobsSupported":[jobs_val],
+
+        "CollateralInd":["N"]
 
     })
+
+    # ==============================
+    # 特徴量順を学習データと一致
+    # ==============================
+
+    feature_order = [
+
+        "id",
+        "GrossApproval",
+        "SBAGuaranteedApproval",
+        "ApprovalFiscalYear",
+        "Subprogram",
+        "InitialInterestRate",
+        "FixedOrVariableInterestInd",
+        "TermInMonths",
+        "NaicsSector",
+        "CongressionalDistrict",
+        "BusinessType",
+        "BusinessAge",
+        "RevolverStatus",
+        "JobsSupported",
+        "CollateralInd"
+
+    ]
+
+    input_df = input_df[feature_order]
 
     # ==============================
     # AI予測
@@ -190,10 +236,12 @@ if submitted:
     )
 
     display = similar[[
+
         "GrossApproval",
         "TermInMonths",
         "InitialInterestRate",
         "結果"
+
     ]].rename(columns={
 
         "GrossApproval":"融資額",
