@@ -114,3 +114,36 @@ if submit:
     except Exception as e:
         st.error(f"予測中にエラーが発生しました。")
         st.write(f"詳細: {e}")
+
+# --- 予測結果表示のあとに以下を追加 ---
+
+        # 4. 特徴量重要度の可視化（どの項目が影響したか）
+        st.subheader("💡 審査のポイント")
+        importances = model.get_feature_importance()
+        feat_imp_df = pd.DataFrame({
+            '項目': expected_features,
+            '影響度': importances
+        }).sort_values(by='影響度', ascending=False).head(5)
+        
+        st.write("今回の判定で特に重視された項目TOP5:")
+        st.table(feat_imp_df)
+
+        # 5. 似た条件での比較機能（シミュレーション）
+        st.markdown("---")
+        st.subheader("🔍 条件を変えた場合の比較")
+        st.info("もし以下の条件が変わった場合、確率はどう変化するかをシミュレーションします。")
+
+        # 比較用データ作成：例えば「金利が2%上がった場合」
+        compare_df = df_final.copy()
+        compare_df["InitialInterestRate"] += 2.0
+        
+        compare_pool = Pool(compare_df, cat_features=cat_features_idx)
+        compare_proba = model.predict_proba(compare_pool)[0][1]
+
+        col_sim1, col_sim2 = st.columns(2)
+        col_sim1.write("現在の条件")
+        col_sim1.metric("デフォルト確率", f"{round(proba * 100, 2)} %")
+        
+        col_sim2.write("金利が +2.0% になった場合")
+        col_sim2.metric("デフォルト確率", f"{round(compare_proba * 100, 2)} %", 
+                        delta=f"{round((compare_proba - proba) * 100, 2)} %", delta_color="inverse")
