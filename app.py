@@ -3,22 +3,20 @@ import pandas as pd
 import numpy as np
 import os
 import joblib
+from catboost import Pool
+
+# ==============================
+# ページ設定
+# ==============================
 
 st.set_page_config(page_title="銀行ローン審査AI", layout="centered")
-
 st.title("🏦 銀行ローン審査AI デモ")
 
 # ==============================
 # モデル読み込み
 # ==============================
 
-MODEL_PATH = "loan_model.pkl"
-
-@st.cache_resource
-def load_model():
-    return joblib.load(MODEL_PATH)
-
-model = load_model()
+model = joblib.load("loan_model.pkl")
 
 # ==============================
 # データ読み込み
@@ -42,11 +40,11 @@ if not df.empty:
 
     st.subheader("📊 過去ローンデータ概要")
 
-    col1,col2,col3 = st.columns(3)
+    col1, col2, col3 = st.columns(3)
 
-    col1.metric("データ件数",len(df))
-    col2.metric("平均融資額",f"${int(df['GrossApproval'].mean()):,}")
-    col3.metric("平均返済期間",f"{int(df['TermInMonths'].mean())}ヶ月")
+    col1.metric("データ件数", len(df))
+    col2.metric("平均融資額", f"${int(df['GrossApproval'].mean()):,}")
+    col3.metric("平均返済期間", f"{int(df['TermInMonths'].mean())}ヶ月")
 
 # ==============================
 # 入力フォーム
@@ -66,23 +64,23 @@ with st.form("input_form"):
 
     term_val = st.slider(
         "返済期間 (ヶ月)",
-        12,
-        360,
-        120
+        min_value=12,
+        max_value=360,
+        value=120
     )
 
     interest_val = st.slider(
         "金利 (%)",
-        1.0,
-        20.0,
-        8.0
+        min_value=1.0,
+        max_value=20.0,
+        value=8.0
     )
 
     jobs_val = st.number_input(
         "雇用人数",
-        0,
-        500,
-        3
+        min_value=0,
+        max_value=500,
+        value=3
     )
 
     sector_val = st.selectbox(
@@ -116,65 +114,76 @@ with st.form("input_form"):
     submitted = st.form_submit_button("🚀 AI審査実行")
 
 # ==============================
-# 審査実行
+# AI審査
 # ==============================
 
 if submitted:
 
     if df.empty:
-        st.error("参照データがありません")
+        st.error("train.csv が存在しません")
         st.stop()
 
     st.success("AI解析を実行しました")
 
     # ==============================
-    # AI入力データ
+    # 学習時と同じ列構造を作る
     # ==============================
 
-    input_df = df.drop(columns=["LoanStatus"]).iloc[[0]].copy()
+    row = df.iloc[0].copy()
 
-    input_df["GrossApproval"] = gross_val
-    input_df["SBAGuaranteedApproval"] = gross_val * 0.75
-    input_df["InitialInterestRate"] = interest_val
-    input_df["TermInMonths"] = term_val
-    input_df["JobsSupported"] = jobs_val
-    input_df["NaicsSector"] = sector_val
-    input_df["BusinessType"] = business_type
-    input_df["BusinessAge"] = business_age
-    input_df["RevolverStatus"] = "N"
+    row["GrossApproval"] = gross_val
+    row["SBAGuaranteedApproval"] = gross_val * 0.75
+    row["InitialInterestRate"] = interest_val
+    row["TermInMonths"] = term_val
+    row["JobsSupported"] = jobs_val
+    row["NaicsSector"] = sector_val
+    row["BusinessType"] = business_type
+    row["BusinessAge"] = business_age
+    row["RevolverStatus"] = "N"
+
+    input_df = pd.DataFrame([row])
+
+    if "LoanStatus" in input_df.columns:
+        input_df = input_df.drop(columns=["LoanStatus"])
+
+    # ==============================
+    # CatBoost Pool
+    # ==============================
+
+    cat_features = [
+        "NaicsSector",
+        "BusinessType",
+        "BusinessAge",
+        "RevolverStatus"
+    ]
+
+    pool = Pool(input_df, cat_features=cat_features)
 
     # ==============================
     # AI予測
     # ==============================
 
-    proba = model.predict_proba(input_df)[0][1]
+    proba = model.predict_proba(pool)[0][1]
 
     st.subheader("🤖 AI審査結果")
 
     st.metric(
-        "デフォルト確率",
-        f"{proba*100:.1f}%"
+        label="デフォルト確率",
+        value=f"{proba*100:.1f}%"
     )
 
-    # ==============================
-    # 銀行審査基準
-    # ==============================
-
-    if proba < 0.15:
+    if proba < 0.3:
         st.success("✅ 融資承認")
-
-    elif proba < 0.35:
+    elif proba < 0.6:
         st.warning("⚠️ 要追加審査")
-
     else:
         st.error("❌ 融資拒否")
 
     # ==============================
-    # リスクゲージ
+    # リスク可視化
     # ==============================
 
     st.subheader("📉 リスクレベル")
-
     st.progress(float(proba))
 
     # ==============================
@@ -184,19 +193,15 @@ if submitted:
     st.subheader("🔍 過去の類似案件")
 
     df["score"] = (
-
-        abs(df["GrossApproval"]-gross_val)/gross_val +
-
-        abs(df["TermInMonths"]-term_val)/term_val +
-
-        abs(df["InitialInterestRate"]-interest_val)/interest_val
-
+        abs(df["GrossApproval"] - gross_val)/gross_val +
+        abs(df["TermInMonths"] - term_val)/term_val +
+        abs(df["InitialInterestRate"] - interest_val)/interest_val
     )
 
     similar = df.sort_values("score").head(5).copy()
 
     similar["結果"] = similar["LoanStatus"].apply(
-        lambda x:"✅ 完済" if x==1 else "⚠️ 不履行"
+        lambda x: "✅ 完済" if x==1 else "⚠️ 不履行"
     )
 
     display = similar[[
@@ -205,30 +210,12 @@ if submitted:
         "InitialInterestRate",
         "結果"
     ]].rename(columns={
-
         "GrossApproval":"融資額",
         "TermInMonths":"期間",
         "InitialInterestRate":"金利"
-
     })
 
     st.table(display)
-
-    # ==============================
-    # リスク分析
-    # ==============================
-
-    st.subheader("📊 リスク分析")
-
-    col1,col2,col3 = st.columns(3)
-
-    loan_ratio = gross_val / df["GrossApproval"].mean()
-    term_ratio = term_val / df["TermInMonths"].mean()
-    interest_ratio = interest_val / df["InitialInterestRate"].mean()
-
-    col1.metric("融資額リスク",f"{loan_ratio:.2f}")
-    col2.metric("期間リスク",f"{term_ratio:.2f}")
-    col3.metric("金利リスク",f"{interest_ratio:.2f}")
 
 else:
 
