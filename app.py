@@ -18,7 +18,7 @@ def load_resources():
     # 過去の学習データを読み込む
     try:
         # 学習に使ったCSVファイルを指定してください
-        train_df = pd.read_csv("train_data.csv")
+        train_df = pd.read_csv("train.csv")
     except:
         st.error("train_data.csv が見つかりません。過去事例を表示できません。")
         train_df = pd.DataFrame()
