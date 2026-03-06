@@ -2,6 +2,13 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import os
+import joblib
+
+# ==============================
+# モデル読み込み
+# ==============================
+
+model = joblib.load("loan_model.pkl")
 
 st.set_page_config(page_title="ローン審査AI", layout="centered")
 
@@ -17,7 +24,7 @@ DATA_PATH = "train.csv"
 def get_data():
     if os.path.exists(DATA_PATH):
         return pd.read_csv(DATA_PATH)
-    return pd.DataFrame(columns=['GrossApproval','TermInMonths','LoanStatus'])
+    return pd.DataFrame()
 
 df = get_data()
 
@@ -46,7 +53,7 @@ with st.form("input_form"):
     gross_val = st.number_input(
         "融資申込総額 (USD)",
         min_value=1000,
-        max_value=1000000,
+        max_value=5000000,
         value=50000,
         step=1000
     )
@@ -73,37 +80,48 @@ if submitted:
     st.success("AI解析を実行しました")
 
     # ==============================
-    # 簡易AIスコア
+    # AI入力データ作成
     # ==============================
 
-    loan_ratio = gross_val / df["GrossApproval"].mean()
-    term_ratio = term_val / df["TermInMonths"].mean()
+    input_df = pd.DataFrame({
+        "GrossApproval":[gross_val],
+        "TermInMonths":[term_val]
+    })
 
-    risk_score = (loan_ratio*0.6 + term_ratio*0.4)
+    # モデルに必要な列を補完
+    for col in model.feature_names_:
+        if col not in input_df.columns:
+            input_df[col] = 0
 
-    default_prob = min(max((risk_score-0.8)/2,0),1)
+    input_df = input_df[model.feature_names_]
+
+    # ==============================
+    # AI判定
+    # ==============================
+
+    proba = model.predict_proba(input_df)[0][1]
 
     st.subheader("🤖 AI審査結果")
 
     st.metric(
         label="デフォルト確率",
-        value=f"{default_prob*100:.1f}%"
+        value=f"{proba*100:.1f}%"
     )
 
-    if default_prob < 0.4:
-        st.success("✅ 承認可能")
-    elif default_prob < 0.7:
-        st.warning("⚠️ 要注意")
+    if proba < 0.3:
+        st.success("✅ 融資承認")
+    elif proba < 0.6:
+        st.warning("⚠️ 要追加審査")
     else:
-        st.error("❌ リスク高")
+        st.error("❌ 融資拒否")
 
     # ==============================
-    # リスクゲージ
+    # リスク可視化
     # ==============================
 
     st.subheader("📉 リスクレベル")
 
-    st.progress(float(default_prob))
+    st.progress(float(proba))
 
     # ==============================
     # 類似案件検索
@@ -122,11 +140,9 @@ if submitted:
         lambda x: "✅ 完済" if x==1 else "⚠️ 不履行"
     )
 
-    display = similar[[
-        "GrossApproval",
-        "TermInMonths",
-        "結果"
-    ]].rename(columns={
+    display = similar[
+        ["GrossApproval","TermInMonths","結果"]
+    ].rename(columns={
         "GrossApproval":"融資額",
         "TermInMonths":"期間"
     })
