@@ -94,8 +94,8 @@ if submit:
         c1, c2, c3 = st.columns(3)
         
         with c1:
-            st.metric("実効リスク指数", f"{risk_index * 110:.2f} %")
-            if risk_index < 0.02: st.success("総合判定: ✅ 安全")
+            st.metric("実効リスク指数", f"{risk_index * 100:.2f} %")
+            if risk_index < 0.03: st.success("総合判定: ✅ 安全")
             elif risk_index < 0.10: st.warning("総合判定: ⚠️ 注意")
             else: st.error("総合判定: 🚨 慎重検討")
 
