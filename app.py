@@ -49,9 +49,12 @@ with st.form("loan_form"):
     # ここで submit 変数を定義
     submit = st.form_submit_button("AI審査を開始")
 
-# 4. 予測実行 (submitが定義された後に実行)
+# ======================
+# 3. 予測実行
+# ======================
 if submit:
-    # 前回の修正に基づき、RevolverStatus を数値(float)に変換
+    # 1. データの作成
+    # 前回の修正: RevolverStatus は Float
     revolver_numeric = 1.0 if revolver == "Y" else 0.0
 
     input_data = {
@@ -62,7 +65,7 @@ if submit:
         "InitialInterestRate": float(rate),
         "FixedOrVariableInterestInd": str(rate_type),
         "TermInMonths": float(term),
-        "NaicsSector": float(sector),
+        "NaicsSector": str(int(sector)),  # 【修正】数値から文字列(カテゴリ)へ変換
         "CongressionalDistrict": float(district),
         "BusinessType": str(business_type),
         "BusinessAge": str(business_age),
@@ -73,13 +76,14 @@ if submit:
 
     input_df = pd.DataFrame([input_data])
 
-    # 列の順序をモデルに合わせる
+    # 2. 列の順序をモデルに合わせる
     input_df = input_df.reindex(columns=expected_features)
 
-    # 数値列のリスト（CatBoostError対策）
+    # 3. 型の最終調整
+    # 今回のエラーに基づき、NaicsSector を数値リストから除外し、文字列リストに入れます
     numeric_cols = [
         "GrossApproval", "SBAGuaranteedApproval", "ApprovalFiscalYear",
-        "InitialInterestRate", "TermInMonths", "NaicsSector", 
+        "InitialInterestRate", "TermInMonths", 
         "CongressionalDistrict", "JobsSupported", "RevolverStatus"
     ]
 
@@ -87,15 +91,17 @@ if submit:
         if col in numeric_cols:
             input_df[col] = pd.to_numeric(input_df[col], errors='coerce').astype(float)
         else:
+            # NaicsSector を含むカテゴリ列は確実に文字列にする
             input_df[col] = input_df[col].astype(str)
 
-    # カテゴリ変数のインデックス取得
+    # 4. カテゴリ変数のインデックス取得
     cat_features_idx = [i for i, col in enumerate(input_df.columns) if input_df[col].dtype == 'object']
 
     try:
         pool = Pool(input_df, cat_features=cat_features_idx)
         proba = model.predict_proba(pool)[0][1]
 
+        # 結果表示
         st.markdown("---")
         st.subheader("審査結果")
         st.metric("デフォルト確率", f"{round(proba * 100, 2)} %")
