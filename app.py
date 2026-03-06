@@ -66,7 +66,7 @@ if submit:
         # --- 精密類似事例検索 (同業種・同属性優先) ---
         if not train_df.empty:
             filtered_df = train_df[train_df['NaicsSector'] == str(sector)].copy()
-            search_pool = filtered_df if len(filtered_df) >= 10 else train_df.copy()
+            search_pool = filtered_df if len(filtered_df) >= 50 else train_df.copy()
 
             search_features = ["GrossApproval", "InitialInterestRate", "TermInMonths"]
             train_num = search_pool[search_features].apply(pd.to_numeric, errors='coerce').fillna(0)
@@ -76,7 +76,7 @@ if submit:
             train_scaled = scaler.fit_transform(train_num)
             input_scaled = scaler.transform(input_num)
 
-            nn = NearestNeighbors(n_neighbors=min(10, len(search_pool)))
+            nn = NearestNeighbors(n_neighbors=min(50, len(search_pool)))
             nn.fit(train_scaled)
             _, indices = nn.kneighbors(input_scaled)
             similar_cases = search_pool.iloc[indices[0]].copy()
@@ -86,7 +86,7 @@ if submit:
         # --- 【新ロジック】実効リスク指数の計算 ---
         # AIの数学的予測(proba)と、現場の生データ(risk_pct)を統合
         # AIが0.0022%でも、過去実績が20%なら、指数は中間（あるいは実績重視）に跳ね上がる
-        risk_index = (proba * 50) + (risk_pct / 100 * 0.5) # AIの50倍と実績の50%をブレンド
+        risk_index = (proba * 20) + (risk_pct / 100 * 0.8) # AIの50倍と実績の50%をブレンド
         risk_index = min(risk_index, 1.0) # 最大1.0
 
         # --- 表示 ---
@@ -111,7 +111,7 @@ if submit:
         
         # 影響度 Top3
         importances = model.get_feature_importance()
-        imp_df = pd.DataFrame({'項目': expected_features, '影響度': importances}).sort_values('影響度', ascending=False).head(3)
+        imp_df = pd.DataFrame({'項目': expected_features, '影響度': importances}).sort_values('影響度', ascending=False).head(5)
         st.write("### 💡 AIが注目した主要因")
         st.table(imp_df.T)
 
