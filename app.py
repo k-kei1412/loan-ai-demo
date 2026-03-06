@@ -18,7 +18,7 @@ def load_resources():
     # 過去の事例を表示するために学習用データを読み込む
     # train_data.csv はご自身のファイル名に合わせてください
     try:
-        train_df = pd.read_csv("train_data.csv")
+        train_df = pd.read_csv("train.csv")
     except:
         train_df = pd.DataFrame() # ファイルがない場合は空
     
