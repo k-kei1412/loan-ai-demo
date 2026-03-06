@@ -10,9 +10,9 @@ import joblib
 
 model = joblib.load("loan_model.pkl")
 
-st.set_page_config(page_title="ローン審査AI", layout="centered")
+st.set_page_config(page_title="銀行ローン審査AI", layout="centered")
 
-st.title("🏦 ローン審査AI デモ")
+st.title("🏦 銀行ローン審査AI デモ")
 
 # ==============================
 # データ読み込み
@@ -65,6 +65,48 @@ with st.form("input_form"):
         value=120
     )
 
+    interest_val = st.slider(
+        "金利 (%)",
+        min_value=1.0,
+        max_value=20.0,
+        value=8.0
+    )
+
+    jobs_val = st.number_input(
+        "雇用人数",
+        min_value=0,
+        max_value=500,
+        value=3
+    )
+
+    sector_val = st.selectbox(
+        "業種",
+        [
+            "Accommodation_food services",
+            "Retail trade",
+            "Construction",
+            "Information",
+            "Manufacturing"
+        ]
+    )
+
+    business_type = st.selectbox(
+        "企業形態",
+        [
+            "CORPORATION",
+            "SOLE PROPRIETORSHIP",
+            "PARTNERSHIP"
+        ]
+    )
+
+    business_age = st.selectbox(
+        "企業年齢",
+        [
+            "Startup, Loan Funds will Open Business",
+            "Existing or more than 2 years old"
+        ]
+    )
+
     submitted = st.form_submit_button("🚀 AI審査実行")
 
 # ==============================
@@ -80,23 +122,25 @@ if submitted:
     st.success("AI解析を実行しました")
 
     # ==============================
-    # AI入力データ作成
+    # AI入力データ
     # ==============================
 
     input_df = pd.DataFrame({
+
         "GrossApproval":[gross_val],
-        "TermInMonths":[term_val]
+        "SBAGuaranteedApproval":[gross_val*0.75],
+        "InitialInterestRate":[interest_val],
+        "TermInMonths":[term_val],
+        "JobsSupported":[jobs_val],
+        "NaicsSector":[sector_val],
+        "BusinessType":[business_type],
+        "BusinessAge":[business_age],
+        "RevolverStatus":["N"]
+
     })
 
-    # モデルに必要な列を補完
-    for col in model.feature_names_:
-        if col not in input_df.columns:
-            input_df[col] = 0
-
-    input_df = input_df[model.feature_names_]
-
     # ==============================
-    # AI判定
+    # AI予測
     # ==============================
 
     proba = model.predict_proba(input_df)[0][1]
@@ -130,21 +174,32 @@ if submitted:
     st.subheader("🔍 過去の類似案件")
 
     df["score"] = (
-        abs(df["GrossApproval"] - gross_val)/gross_val +
-        abs(df["TermInMonths"] - term_val)/term_val
+
+        abs(df["GrossApproval"]-gross_val)/gross_val +
+
+        abs(df["TermInMonths"]-term_val)/term_val +
+
+        abs(df["InitialInterestRate"]-interest_val)/interest_val
+
     )
 
     similar = df.sort_values("score").head(5).copy()
 
     similar["結果"] = similar["LoanStatus"].apply(
-        lambda x: "✅ 完済" if x==1 else "⚠️ 不履行"
+        lambda x:"✅ 完済" if x==1 else "⚠️ 不履行"
     )
 
-    display = similar[
-        ["GrossApproval","TermInMonths","結果"]
-    ].rename(columns={
+    display = similar[[
+        "GrossApproval",
+        "TermInMonths",
+        "InitialInterestRate",
+        "結果"
+    ]].rename(columns={
+
         "GrossApproval":"融資額",
-        "TermInMonths":"期間"
+        "TermInMonths":"期間",
+        "InitialInterestRate":"金利"
+
     })
 
     st.table(display)
