@@ -4,7 +4,7 @@ import numpy as np
 from catboost import CatBoostClassifier, Pool
 
 # 1. ページ設定
-st.set_page_config(page_title="ローン審査AI", layout="centered")
+st.set_page_config(page_title="ローン審査AI", layout="wide") # 広く使うためにwideに設定
 st.title("ローンデフォルト予測AI")
 
 # 2. モデル読み込み
@@ -23,11 +23,8 @@ except Exception as e:
 
 # 3. 入力フォーム
 st.subheader("申請者情報の入力")
-
-# ここで st.form を定義
 with st.form("loan_form"):
     col1, col2 = st.columns(2)
-
     with col1:
         gross = st.number_input("融資額 ($)", 0, 10000000, 50000)
         sba = st.number_input("保証額 ($)", 0, 10000000, 30000)
@@ -35,7 +32,6 @@ with st.form("loan_form"):
         rate = st.number_input("金利 (%)", 0.0, 30.0, 5.0)
         term = st.number_input("返済期間 (月)", 1, 360, 120)
         jobs = st.number_input("雇用人数", 0, 1000, 5)
-
     with col2:
         subprogram = st.text_input("ローンプログラム", "7(a)")
         rate_type = st.selectbox("金利タイプ", ["Fixed", "Variable"])
@@ -46,17 +42,12 @@ with st.form("loan_form"):
         revolver = st.selectbox("リボルビングローン", ["Y", "N"])
         collateral = st.selectbox("担保の有無", ["Y", "N"])
 
-    # ここで submit 変数を定義
     submit = st.form_submit_button("AI審査を開始")
 
-# ======================
-# 3. 予測実行
-# ======================
+# 4. 予測実行
 if submit:
-    # 1. データの作成
-    # 前回の修正: RevolverStatus は Float
+    # データ変換
     revolver_numeric = 1.0 if revolver == "Y" else 0.0
-
     input_data = {
         "GrossApproval": float(gross),
         "SBAGuaranteedApproval": float(sba),
@@ -65,7 +56,7 @@ if submit:
         "InitialInterestRate": float(rate),
         "FixedOrVariableInterestInd": str(rate_type),
         "TermInMonths": float(term),
-        "NaicsSector": str(int(sector)),  # 【修正】数値から文字列(カテゴリ)へ変換
+        "NaicsSector": str(int(sector)),
         "CongressionalDistrict": float(district),
         "BusinessType": str(business_type),
         "BusinessAge": str(business_age),
@@ -74,76 +65,55 @@ if submit:
         "CollateralInd": str(collateral)
     }
 
-    input_df = pd.DataFrame([input_data])
-
-    # 2. 列の順序をモデルに合わせる
-    input_df = input_df.reindex(columns=expected_features)
-
-    # 3. 型の最終調整
-    # 今回のエラーに基づき、NaicsSector を数値リストから除外し、文字列リストに入れます
-    numeric_cols = [
-        "GrossApproval", "SBAGuaranteedApproval", "ApprovalFiscalYear",
-        "InitialInterestRate", "TermInMonths", 
-        "CongressionalDistrict", "JobsSupported", "RevolverStatus"
-    ]
-
-    for col in input_df.columns:
+    df_final = pd.DataFrame([input_data]).reindex(columns=expected_features)
+    
+    # 型の強制
+    numeric_cols = ["GrossApproval", "SBAGuaranteedApproval", "ApprovalFiscalYear", "InitialInterestRate", "TermInMonths", "CongressionalDistrict", "JobsSupported", "RevolverStatus"]
+    for col in df_final.columns:
         if col in numeric_cols:
-            input_df[col] = pd.to_numeric(input_df[col], errors='coerce').astype(float)
+            df_final[col] = pd.to_numeric(df_final[col], errors='coerce').astype(float)
         else:
-            # NaicsSector を含むカテゴリ列は確実に文字列にする
-            input_df[col] = input_df[col].astype(str)
+            df_final[col] = df_final[col].astype(str)
 
-    # 4. カテゴリ変数のインデックス取得
-    cat_features_idx = [i for i, col in enumerate(input_df.columns) if input_df[col].dtype == 'object']
+    cat_features_idx = [i for i, col in enumerate(df_final.columns) if df_final[col].dtype == 'object']
 
     try:
-        pool = Pool(input_df, cat_features=cat_features_idx)
+        # 本番予測
+        pool = Pool(df_final, cat_features=cat_features_idx)
         proba = model.predict_proba(pool)[0][1]
 
-        # 結果表示
+        # 🚀 結果表示
         st.markdown("---")
         st.subheader("審査結果")
-        st.metric("デフォルト確率", f"{round(proba * 100, 2)} %")
+        col_res1, col_res2 = st.columns(2)
+        
+        # 0.0%の対策として小さな値を表示
+        display_proba = round(proba * 100, 4)
+        col_res1.metric("デフォルト確率", f"{display_proba} %")
 
         if proba > 0.5:
-            st.error("【判定】融資危険")
+            col_res2.error("【判定】融資危険")
         else:
-            st.success("【判定】融資可能")
+            col_res2.success("【判定】融資可能")
 
-    except Exception as e:
-        st.error(f"予測中にエラーが発生しました。")
-        st.write(f"詳細: {e}")
-
-# --- 予測結果表示のあとに以下を追加 ---
-
-        # 4. 特徴量重要度の可視化（どの項目が影響したか）
-        st.subheader("💡 審査のポイント")
+        # 📊 💡 追加機能：今回の判断で重要だった項目
+        st.write("### 💡 AIが注目した項目")
         importances = model.get_feature_importance()
-        feat_imp_df = pd.DataFrame({
-            '項目': expected_features,
-            '影響度': importances
-        }).sort_values(by='影響度', ascending=False).head(5)
-        
-        st.write("今回の判定で特に重視された項目TOP5:")
+        feat_imp_df = pd.DataFrame({'項目': expected_features, '影響度': importances}).sort_values(by='影響度', ascending=False).head(5)
         st.table(feat_imp_df)
 
-        # 5. 似た条件での比較機能（シミュレーション）
-        st.markdown("---")
-        st.subheader("🔍 条件を変えた場合の比較")
-        st.info("もし以下の条件が変わった場合、確率はどう変化するかをシミュレーションします。")
-
-        # 比較用データ作成：例えば「金利が2%上がった場合」
-        compare_df = df_final.copy()
-        compare_df["InitialInterestRate"] += 2.0
+        # 🔍 💡 追加機能：条件シミュレーション（似たようなケース）
+        st.write("### 🔍 条件を変えた場合のシミュレーション")
+        st.write("「もし金利が今より3%高かったら？」という似たケースと比較します。")
         
-        compare_pool = Pool(compare_df, cat_features=cat_features_idx)
-        compare_proba = model.predict_proba(compare_pool)[0][1]
-
+        sim_df = df_final.copy()
+        sim_df["InitialInterestRate"] += 3.0 # 金利を3%アップ
+        sim_pool = Pool(sim_df, cat_features=cat_features_idx)
+        sim_proba = model.predict_proba(sim_pool)[0][1]
+        
         col_sim1, col_sim2 = st.columns(2)
-        col_sim1.write("現在の条件")
-        col_sim1.metric("デフォルト確率", f"{round(proba * 100, 2)} %")
-        
-        col_sim2.write("金利が +2.0% になった場合")
-        col_sim2.metric("デフォルト確率", f"{round(compare_proba * 100, 2)} %", 
-                        delta=f"{round((compare_proba - proba) * 100, 2)} %", delta_color="inverse")
+        col_sim1.metric("現在の条件", f"{display_proba} %")
+        col_sim2.metric("金利 +3% の場合", f"{round(sim_proba * 100, 4)} %", delta=f"{round((sim_proba - proba)*100, 4)}%", delta_color="inverse")
+
+    except Exception as e:
+        st.error(f"エラー: {e}")
