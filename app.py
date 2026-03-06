@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 from catboost import CatBoostClassifier, Pool
+from preprocess import preprocess
 
 st.title("ローンデフォルト予測AI")
 
@@ -16,15 +17,10 @@ model.load_model("catboost_model.cbm")
 # ======================
 
 gross = st.number_input("融資額", 1000, 1000000, 50000)
-
 sba = st.number_input("保証額", 0, 1000000, 30000)
-
 year = st.number_input("承認年度", 1990, 2025, 2010)
 
-subprogram = st.selectbox(
-    "ローンプログラム",
-    ["7(a)", "FA$TRK (Small Loan Express)", "Express"]
-)
+subprogram = st.text_input("ローンプログラム")
 
 rate = st.number_input("金利", 0.0, 20.0, 5.0)
 
@@ -39,10 +35,7 @@ sector = st.number_input("産業セクター", 1, 99, 44)
 
 district = st.number_input("地区", 1, 60, 10)
 
-business_type = st.selectbox(
-    "企業形態",
-    ["Corporation", "Partnership", "Sole Proprietorship", "LLC"]
-)
+business_type = st.text_input("企業形態")
 
 business_age = st.selectbox(
     "企業年齢",
@@ -65,9 +58,9 @@ collateral = st.selectbox(
 # 予測
 # ======================
 
-if st.button("予測"):
+if st.button("AI審査"):
 
-    data = pd.DataFrame([{
+    input_df = pd.DataFrame([{
         "GrossApproval": gross,
         "SBAGuaranteedApproval": sba,
         "ApprovalFiscalYear": year,
@@ -84,22 +77,15 @@ if st.button("予測"):
         "CollateralInd": collateral
     }])
 
-    cat_features = [
-        "Subprogram",
-        "FixedOrVariableInterestInd",
-        "BusinessType",
-        "BusinessAge",
-        "RevolverStatus",
-        "CollateralInd"
-    ]
+    input_df, cat_features = preprocess(input_df)
 
-    pool = Pool(data, cat_features=cat_features)
+    pool = Pool(input_df, cat_features=cat_features)
 
     proba = model.predict_proba(pool)[0][1]
 
     st.write("デフォルト確率:", round(proba * 100, 2), "%")
 
     if proba > 0.5:
-        st.error("デフォルトリスク高")
+        st.error("融資危険")
     else:
-        st.success("デフォルトリスク低")
+        st.success("融資可能")
