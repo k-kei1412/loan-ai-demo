@@ -129,8 +129,8 @@ if submit:
             st.table(display_imp)
             
 
-       with col_tips:
-            st.write("### 📝 審査のアドバイス")
+        with col_tips:
+             st.write("### 📝 審査のアドバイス")
             
             # 【重要】AIの確信度より「目の前の実績(risk_pct)」を優先して喋らせる
             if risk_pct > 50:
