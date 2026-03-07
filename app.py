@@ -99,8 +99,8 @@ if submit:
         imp_df = pd.DataFrame({'項目': [name_map.get(f, f) for f in expected_features], 'raw': importances})
         # 実務バランス補正
         imp_df['adj'] = imp_df['raw']
-        imp_df.loc[imp_df['項目'] == '返済期間', 'adj'] *= 0.5
-        imp_df.loc[imp_df['項目'] == '融資総額', 'adj'] *= 1.8
+        imp_df.loc[imp_df['項目'] == '返済期間', 'adj'] *= 0.4
+        imp_df.loc[imp_df['項目'] == '融資総額', 'adj'] *= 1.9
         total_adj = imp_df['adj'].sum()
         imp_df['影響度(%)'] = (imp_df['adj'] / total_adj * 100).round(2)
         display_imp = imp_df.sort_values('影響度(%)', ascending=False).head(5)[['項目', '影響度(%)']]
