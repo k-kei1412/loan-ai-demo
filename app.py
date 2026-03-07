@@ -6,16 +6,19 @@ from sklearn.neighbors import NearestNeighbors
 from sklearn.preprocessing import StandardScaler
 
 # 1. ページ設定
-st.set_page_config(page_title="ローン審査AI：全データ統合版", layout="wide")
+st.set_page_config(page_title="ローン審査AI：真・完全体", layout="wide")
 st.title("🏦 中小企業向けローン返済予測 AIシステム")
 
-# 翻訳辞書
+# 翻訳・セクター定義
 SECTOR_TRANSLATE = {
-    "11": "農業・林業・漁業", "21": "鉱業・採掘", "22": "電気・ガス・水道", "23": "建設業", 
-    "31": "製造業", "42": "卸売業", "44": "小売業", "48": "運輸・倉庫業", "51": "情報通信業", 
-    "52": "金融・保険業", "53": "不動産・賃貸業", "54": "専門・技術サービス", 
-    "56": "支援・廃棄物処理", "61": "教育サービス", "62": "医療・社会福祉", 
-    "71": "娯楽・レキュリエーション", "72": "宿泊・飲食サービス", "81": "その他サービス", "92": "公務"
+    "Accommodation_food services": "宿泊・飲食サービス", "Administrative_support_waste_management": "支援・廃棄物処理",
+    "Agriculture_forestry_fishing_hunting": "農業・林業・漁業", "Arts_entertainment_recreation": "娯楽・レクリエーション",
+    "Construction": "建設業", "Educational services": "教育サービス", "Finance_insurance": "金融・保険業",
+    "Health care_social assistance": "医療・社会福祉", "Information": "情報通信業", "Manufacturing": "製造業",
+    "Mining_quarrying_oil_gas extraction": "鉱業・採掘", "Other services": "その他サービス",
+    "Professional_scientific_technical services": "専門・技術サービス", "Public administration": "公務",
+    "Real estate_rental_leasing": "不動産・賃貸業", "Retail trade": "小売業", "Transportation_warehousing": "運輸・倉庫業",
+    "Utilities": "電気・ガス・水道", "Wholesale trade": "卸売業"
 }
 
 @st.cache_resource
@@ -23,7 +26,8 @@ def load_resources():
     model = CatBoostClassifier()
     model.load_model("catboost_model.cbm")
     try:
-        train_df = pd.read_csv("train.csv")
+        train_df = pd.read_csv("train (4).csv")
+        # 業界名を正規化
         train_df['NaicsSector'] = train_df['NaicsSector'].astype(str)
     except:
         train_df = pd.DataFrame()
@@ -32,49 +36,49 @@ def load_resources():
 model, train_df = load_resources()
 expected_features = model.feature_names_
 
-# --- サイドバー (漢字選択肢) ---
+# --- サイドバー (実務入力) ---
 st.sidebar.header("📋 申請者情報入力")
 with st.sidebar:
     gross = st.number_input("融資額 ($)", 0, 10000000, 50000)
     sba = st.number_input("保証額 ($)", 0, 10000000, 30000)
     rate = st.number_input("金利 (%)", 0.0, 30.0, 5.0)
     term = st.number_input("返済期間 (月)", 1, 360, 120)
-    sector_code = st.selectbox("産業セクター", options=list(SECTOR_TRANSLATE.keys()), 
-                               format_func=lambda x: f"{x}: {SECTOR_TRANSLATE[x]}", index=6)
-    business_age_jp = st.selectbox("企業年齢", ["新規創業 (Startup)", "既存企業 (Existing)"])
-    age_map = {"新規創業 (Startup)": "Startup", "既存企業 (Existing)": "Existing"}
-    collateral_jp = st.selectbox("担保の提供", ["あり", "なし"])
-    collateral_val = "Y" if collateral_jp == "あり" else "N"
+    sector_en = st.selectbox("産業セクター", options=sorted(list(SECTOR_TRANSLATE.keys())), 
+                               format_func=lambda x: SECTOR_TRANSLATE[x])
+    business_age = st.selectbox("企業年齢", ["Existing or more than 2 years old", "New Business or 2 years or less", "Startup, Loan Funds will Open Business", "Unanswered"])
+    collateral = st.selectbox("担保の有無", ["Y", "N"])
     submit = st.button("精密クロス審査を開始")
 
 if submit:
     try:
-        # --- A. AI予測 (2000件超の全データから学習した知能) ---
+        # --- A. AI予測 ---
         input_data = {
             "GrossApproval": float(gross), "SBAGuaranteedApproval": float(sba),
             "InitialInterestRate": float(rate), "TermInMonths": float(term),
-            "NaicsSector": sector_code, "ApprovalFiscalYear": 2024.0, "Subprogram": "7(a)",
-            "FixedOrVariableInterestInd": "Fixed", "CongressionalDistrict": 10.0,
-            "BusinessType": "CORPORATION", "BusinessAge": age_map[business_age_jp], 
-            "RevolverStatus": 0.0, "JobsSupported": 5.0, "CollateralInd": collateral_val
+            "NaicsSector": sector_en, "ApprovalFiscalYear": 2024.0, "Subprogram": "Guaranty",
+            "FixedOrVariableInterestInd": "V", "CongressionalDistrict": 10.0,
+            "BusinessType": "CORPORATION", "BusinessAge": business_age, 
+            "RevolverStatus": 0.0, "JobsSupported": 5.0, "CollateralInd": collateral
         }
         input_df = pd.DataFrame([input_data]).reindex(columns=expected_features)
         cat_idx = [i for i, col in enumerate(input_df.columns) if input_df[col].dtype == 'object']
         proba = model.predict_proba(Pool(input_df, cat_features=cat_idx))[0][1]
 
-        # --- B. 類似事例検索 (ハイブリッド検索) ---
+        # --- B. 類似事例検索 (全データ・ハイブリッド) ---
         risk_pct, def_count = 0.0, 0
         if not train_df.empty:
             search_features = ["GrossApproval", "InitialInterestRate", "TermInMonths"]
             train_num = train_df[search_features].fillna(0)
             input_num = input_df[search_features].fillna(0)
             
+            # 【最高精度重み】金額 1.5倍 / 期間 0.5倍
             weights_search = np.array([1.5, 1.0, 0.5]) 
             scaler = StandardScaler()
             train_scaled = (scaler.fit_transform(train_num)) * weights_search
             input_scaled = (scaler.transform(input_num)) * weights_search
 
-            sector_penalty = (train_df['NaicsSector'] != sector_code).astype(float).values * 1.0
+            # 業界一致にボーナス
+            sector_penalty = (train_df['NaicsSector'] != sector_en).astype(float).values * 1.0
             train_final = np.column_stack([train_scaled, sector_penalty])
             input_final = np.append(input_scaled, 0.0).reshape(1, -1)
 
@@ -85,37 +89,40 @@ if submit:
             risk_pct = similar_cases['LoanStatus'].mean() * 100
             def_count = int(similar_cases['LoanStatus'].sum())
 
-        # --- C. 【重要】実効リスク指数の計算 (AI 50% : 実績 50%) ---
-        # 2000件の統計パターンと50件の生データを統合
-        risk_index = (proba * 0.5) + (risk_pct / 100 * 0.5)
+        # --- C. 【重要：実務厳格化補正】 ---
+        # 1. AI予測値の補正 (どんなに安全でも1%のリスクを想定)
+        strict_proba = np.clip(proba, 0.01, 0.99)
+        # 2. 実績事故率の補正 (0件でも「+0.5件」の不確実性を加味)
+        strict_risk_pct = (def_count + 0.5) / (50 + 1)
+        # 3. 5:5 ブレンド
+        risk_index = (strict_proba * 0.5) + (strict_risk_pct * 0.5)
 
-        # --- D. 判定ラベルの定義 ---
-        if risk_index < 0.08:
-            status_label = "安全"
-            status_color = st.success
-        elif risk_index < 0.20:
-            status_label = "注意"
-            status_color = st.warning
-        else:
-            status_label = "危険"
-            status_color = st.error
-
-        # --- E. 画面表示 ---
+        # --- D. 画面表示 ---
         st.subheader("🏁 総合審査報告書")
         c1, c2, c3 = st.columns(3)
         with c1:
             st.metric("実効リスク指数", f"{risk_index * 100:.2f} %")
-            status_color(f"総合判定: ✅ {status_label}")
+            if risk_index < 0.08:
+                st.success("総合判定: ✅ 安全")
+                status = "安全"
+            elif risk_index < 0.20:
+                st.warning("総合判定: ⚠️ 注意")
+                status = "注意"
+            else:
+                st.error("総合判定: 🚨 危険")
+                status = "危険"
         with c2:
-            st.metric("実績事故率", f"{risk_pct:.1f} %")
+            st.metric("実績事故率 (近傍)", f"{risk_pct:.1f} %")
             st.markdown(f"🔍 類似50件中、デフォルトは **{def_count}件**")
         with c3:
-            st.metric("AI完済確信度", f"{(1-proba)*100:.1f} %")
+            # 100.0%という表示を避け、信頼感を現実的に
+            display_conf = min((1 - strict_proba) * 100, 98.9)
+            st.metric("AI完済期待値", f"{display_conf:.1f} %")
             st.caption("全データ(2000件超)に基づく統計予測")
 
         st.divider()
 
-        # --- F. 主要因 & アドバイス ---
+        # --- E. 影響度 & アドバイス ---
         col_imp, col_tips = st.columns(2)
         with col_imp:
             st.write("### ⚖️ 判断の主要構成要素 (%)")
@@ -132,19 +139,17 @@ if submit:
 
         with col_tips:
             st.write("### 📝 審査のアドバイス")
-            if status_label == "危険":
-                st.error("🚨 **【否決推奨】統計と実績の両面で高リスク**")
-                st.write("全データのパターン分析、および直近の類似事例の両方が警告を発しています。承認には極めて慎重な判断が必要です。")
-            elif status_label == "注意":
-                st.warning("⚠️ **【要精査】条件付き承認を検討**")
-                st.write("リスクが許容範囲の境界にあります。返済期間の短縮や追加の担保を条件にすることを推奨します。")
-                if abs(proba - (risk_pct/100)) > 0.15:
-                    st.info("💡 AIの予測と実績に乖離があります。個別の事故事例を詳細に確認してください。")
-            else:
-                st.success("✅ **【承認推奨】極めて堅実な案件**")
-                st.write("2000件の統計、および50件の生データの両方が安全であることを示しています。現行条件での承認を推奨します。")
+            if status == "安全" and display_conf > 98:
+                st.success("✅ **【極めて健全】** AIと過去実績が共に高い安全性を認めています。")
+                st.write("特に期間と担保条件が優良です。")
+            elif status == "注意":
+                st.warning("⚠️ **【要精査】** AI予測と現場の実績にわずかな乖離があります。")
+                st.write("直近の不履行事例（赤色の行）との共通点がないか確認してください。")
+            elif status == "危険":
+                st.error("🚨 **【否決推奨】** 統計的・実績的にデフォルトの危険域です。")
+                st.write("返済原資の確実性を再検討し、不可なら否決を検討してください。")
 
-        # --- G. 事例詳細 ---
+        # --- F. 事例詳細 ---
         st.write(f"### 📂 属性が近い類似事例 (全データから抽出)")
         similar_cases['結果'] = similar_cases['LoanStatus'].apply(lambda x: "❌ デフォルト" if x == 1 else "✅ 完済")
         similar_cases['業種'] = similar_cases['NaicsSector'].map(SECTOR_TRANSLATE).fillna(similar_cases['NaicsSector'])
