@@ -7,7 +7,7 @@ from sklearn.neighbors import NearestNeighbors
 from sklearn.preprocessing import StandardScaler
 
 # 1. ページ設定
-st.set_page_config(page_title="ローン審査AI：実務整合性モデル", layout="wide")
+st.set_page_config(page_title="ローン審査AI：真・完全体", layout="wide")
 st.title("🏦 中小企業向けローン返済予測 AIシステム")
 
 # 2. リソース読み込み
@@ -81,17 +81,17 @@ if submit:
             risk_pct = similar_cases['LoanStatus'].mean() * 100
             def_count = int(similar_cases['LoanStatus'].sum())
 
-            # --- C. 【重要】実効リスク指数の計算 (AI 40% : 実績 60%) ---
+            # --- C. 実効リスク指数の計算 (AI 40% : 実績 60%) ---
             strict_proba = np.clip(raw_proba, 0.03, 0.97) 
             risk_index = (strict_proba * 0.4) + (risk_pct / 100 * 0.6)
+            
+            # 整合性を取るため、期待値をリスク指数から逆算
+            final_expected_success = (1 - risk_index) * 100
 
-            # --- D. 画面表示 (整合性重視) ---
+            # --- D. 画面表示 ---
             st.subheader("🏁 総合審査報告書（100件クロスバリデーション版）")
             c1, c2, c3 = st.columns(3)
             
-            # 整合性を取るため、期待値をリスク指数から逆算する
-            final_expected_success = (1 - risk_index) * 100
-
             with c1:
                 st.metric("実効リスク指数", f"{risk_index * 100:.2f} %")
                 if risk_index < 0.07: 
@@ -107,20 +107,29 @@ if submit:
                 st.metric(f"実績事故率 (類似100件)", f"{risk_pct:.1f} %")
                 st.markdown(f"🔍 うち不履行事例: **{def_count}件**")
             with c3:
-                # 【修正】リスク指数と100%連動させ、「やばいズレ」を解消
                 st.metric("完済期待値 (実績加味)", f"{final_expected_success:.1f} %")
-                st.caption("※AI予測と現場実績を統合した最終確信度")
+                st.caption("※AI予測と現場実績を統合した最終数値")
 
             st.divider()
 
-            # --- E. 審査アドバイス ---
+            # --- E. 審査アドバイス (数値完全連動型) ---
             st.write("### 📝 審査アドバイス")
+            def_rate_text = f"{risk_pct:.1f}"
+            def_count_text = int(def_count)
+            
             if status == "安全":
-                st.info("AI予測と類似実績が共に良好です。標準的な審査手順での承認を推奨します。")
+                st.info(f"AI予測と類似実績が共に良好です。類似100件のうち不履行は{def_count_text}件（{def_rate_text}%）であり、標準的な審査手順での承認を推奨します。")
             elif status == "注意":
-                st.warning(f"実効リスクが {risk_index*100:.1f}% に達しています。類似案件の10件に1件はデフォルトしている計算です。条件の再考を推奨します。")
+                st.warning(f"実効リスクが {risk_index*100:.1f}% に達しています。実際に類似案件を100件精査したところ、{def_count_text}件 がデフォルトしています。慎重な判断が必要です。")
             else:
-                st.error("実績事故率が極めて高いエリアです。現条件での承認は強く再考を要します。")
+                st.error(f"警告：実績事故率が {def_rate_text}% と極めて高い水準です。100件中 {def_count_text}件 が不履行となっており、現条件での承認は強く再考を要します。")
+
+            with st.expander("💡 条件交渉のヒント"):
+                st.write("・リスク指数の上昇原因を「影響度テーブル」で確認してください。")
+                if rate < 7.0:
+                    st.write("・リスクに対して収益性が不足している可能性があります。金利の再設定を検討してください。")
+                if term > 120:
+                    st.write("・返済期間の短縮、または中途での担保評価見直しを条件に加えることを検討してください。")
 
             st.divider()
 
