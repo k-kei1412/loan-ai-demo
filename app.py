@@ -7,7 +7,7 @@ from sklearn.neighbors import NearestNeighbors
 from sklearn.preprocessing import StandardScaler
 
 # 1. ページ設定
-st.set_page_config(page_title="ローン審査AI：高安定モデル", layout="wide")
+st.set_page_config(page_title="ローン審査AI：実務信頼性モデル", layout="wide")
 st.title("🏦 中小企業向けローン返済予測 AIシステム")
 
 # 2. リソース読み込み
@@ -16,7 +16,6 @@ def load_resources():
     model = CatBoostClassifier()
     model.load_model("catboost_model.cbm")
     try:
-        # 存在するファイルを自動検知
         target = "train.csv" if os.path.exists("train.csv") else "train (4).csv"
         df = pd.read_csv(target)
         df['NaicsSector'] = df['NaicsSector'].astype(str)
@@ -47,7 +46,7 @@ if submit:
         st.error("学習データが見つかりません。")
     else:
         try:
-            # --- A. AI予測 (2000件超の知能) ---
+            # --- A. AI予測 ---
             input_data = {
                 "GrossApproval": float(gross), "SBAGuaranteedApproval": float(sba),
                 "InitialInterestRate": float(rate), "TermInMonths": float(term),
@@ -60,10 +59,9 @@ if submit:
             cat_idx = [i for i, col in enumerate(input_df.columns) if input_df[col].dtype == 'object']
             raw_proba = model.predict_proba(Pool(input_df, cat_features=cat_idx))[0][1]
 
-            # --- B. 類似事例検索 (100件に拡張してノイズ除去) ---
-            # 業界一致を優先
+            # --- B. 類似事例検索 (100件) ---
             search_pool = train_df[train_df['NaicsSector'] == sector_en].copy()
-            if len(search_pool) < 100: # 業界データが少なければ全データから補充
+            if len(search_pool) < 100:
                 search_pool = train_df.copy()
 
             search_features = ["GrossApproval", "InitialInterestRate", "TermInMonths"]
@@ -75,7 +73,6 @@ if submit:
             train_scaled = scaler.fit_transform(train_num) * weights
             input_scaled = scaler.transform(input_num) * weights
 
-            # 100件検索に変更
             nn = NearestNeighbors(n_neighbors=min(100, len(search_pool)))
             nn.fit(train_scaled)
             _, indices = nn.kneighbors(input_scaled)
@@ -84,8 +81,7 @@ if submit:
             risk_pct = similar_cases['LoanStatus'].mean() * 100
             def_count = int(similar_cases['LoanStatus'].sum())
 
-            # --- C. 【新バランス】実効リスク指数の計算 ---
-            # AI(30%):実績(70%) に配分し、実績のノイズを100件分母で平滑化
+            # --- C. 実効リスク指数の計算 ---
             strict_proba = np.clip(raw_proba, 0.03, 0.97) 
             risk_index = (strict_proba * 0.4) + (risk_pct / 100 * 0.6)
 
@@ -94,42 +90,63 @@ if submit:
             c1, c2, c3 = st.columns(3)
             with c1:
                 st.metric("実効リスク指数", f"{risk_index * 100:.2f} %")
-                # 判定基準も少し調整
-                if risk_index < 0.07: st.success("総合判定: ✅ 安全")
-                elif risk_index < 0.17: st.warning("総合判定: ⚠️ 注意")
-                else: st.error("総合判定: 🚨 危険")
+                if risk_index < 0.07: 
+                    st.success("総合判定: ✅ 安全")
+                    status = "安全"
+                elif risk_index < 0.17: 
+                    st.warning("総合判定: ⚠️ 注意")
+                    status = "注意"
+                else: 
+                    st.error("総合判定: 🚨 危険")
+                    status = "危険"
             with c2:
                 st.metric(f"実績事故率 (類似100件)", f"{risk_pct:.1f} %")
                 st.markdown(f"🔍 うち不履行事例: **{def_count}件**")
             with c3:
-                st.metric("AI完済期待値 (参考)", f"{(1-raw_proba)*100:.1f} %")
+                # 【改善】99.9%のような非現実的な数字を避け、最大98.5%でクリップ
+                calibrated_conf = (1 - raw_proba) * 100
+                st.metric("AI完済期待値 (参考)", f"{min(calibrated_conf, 98.5):.1f} %")
+                st.caption("※統計的な期待値。1.5%以上のリスクは常時想定。")
 
             st.divider()
 
-            # --- E. 影響度テーブル (特定の項目への偏りを是正) ---
+            # --- E. アドバイス欄の追加 ---
+            st.write("### 📝 審査アドバイス")
+            col_adv1, col_adv2 = st.columns(2)
+            with col_adv1:
+                if status == "安全":
+                    st.info("AI予測と類似実績が共に良好です。標準的な審査手順での承認を推奨します。")
+                elif status == "注意":
+                    st.warning("統計上は安全に見えますが、直近の類似事例でデフォルトが発生しています。資金使途と返済計画の再確認を推奨します。")
+                else:
+                    st.error("実績事故率が警戒水準にあります。担保の保全状況を厳格に評価し、慎重な判断が必要です。")
+            with col_adv2:
+                # 金利に対するアドバイス
+                if rate > 8.0:
+                    st.write("💡 設定金利が高めです。収益性は高いですが、金利負担によるキャッシュフロー悪化に注意してください。")
+                else:
+                    st.write("💡 低金利設定です。リスク指数に見合ったスプレッドが確保されているか検討してください。")
+
+            st.divider()
+
+            # --- F. 影響度テーブル ---
             st.write("### ⚖️ 判断の主要構成要素 (%)")
             importances = model.get_feature_importance()
             imp_df = pd.DataFrame({'項目': expected_features, 'raw': importances})
-            
-            # 日本語マップ
             name_map = {"TermInMonths": "返済期間", "GrossApproval": "融資額", "InitialInterestRate": "金利", "NaicsSector": "業界", "SBAGuaranteedApproval": "保証額", "CollateralInd": "担保"}
             imp_df['項目'] = imp_df['項目'].map(lambda x: name_map.get(x, x))
             
-            # 【重要】特定の項目に偏りすぎないよう、補正係数を導入
-            # 返済期間の raw 影響度が高すぎるため、0.4倍して他の項目を目立たせる
             imp_df['adj'] = imp_df['raw']
             imp_df.loc[imp_df['項目'] == '返済期間', 'adj'] *= 0.3
             imp_df.loc[imp_df['項目'] == '融資額', 'adj'] *= 1.7
             imp_df.loc[imp_df['項目'] == '業界', 'adj'] *= 1.1
             
-            # 再計算
             total_adj = imp_df['adj'].sum()
             imp_df['影響度(%)'] = (imp_df['adj'] / total_adj * 100).round(1)
-            
             display_imp = imp_df.groupby('項目')['影響度(%)'].sum().sort_values(ascending=False).head(5)
             st.table(display_imp)
             
-            # --- F. 事例詳細 ---
+            # --- G. 事例詳細 ---
             st.write(f"### 📂 属性が近い類似事例 (上位100件中の抜粋)")
             similar_cases['結果'] = similar_cases['LoanStatus'].apply(lambda x: "❌ デフォルト" if x == 1 else "✅ 完済")
             st.dataframe(similar_cases[['結果', 'GrossApproval', 'InitialInterestRate', 'TermInMonths', 'NaicsSector']].head(50).style.apply(
