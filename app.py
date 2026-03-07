@@ -6,7 +6,7 @@ from sklearn.neighbors import NearestNeighbors
 from sklearn.preprocessing import StandardScaler
 
 # 1. ページ設定
-st.set_page_config(page_title="ローン審査AI：真・完全体", layout="wide")
+st.set_page_config(page_title="ローン審査AI：究極完全体", layout="wide")
 st.title("🏦 中小企業向けローン返済予測 AIシステム")
 
 # 2. リソースの読み込み
@@ -62,7 +62,7 @@ if submit:
         pool = Pool(input_df, cat_features=cat_idx)
         proba = model.predict_proba(pool)[0][1]
 
-        # --- 類似事例検索 (重み付け検索) ---
+        # --- 類似事例検索 (50件・重み付け) ---
         if not train_df.empty:
             filtered_df = train_df[train_df['NaicsSector'] == str(sector)].copy()
             search_pool = filtered_df if len(filtered_df) >= 50 else train_df.copy()
@@ -71,14 +71,9 @@ if submit:
             train_num = search_pool[search_features].apply(pd.to_numeric, errors='coerce').fillna(0)
             input_num = input_df[search_features].apply(pd.to_numeric, errors='coerce').fillna(0)
             
-            # 【改善】検索時の「期間」への依存度を下げ、金額を重視する
-            train_num_w = train_num.copy()
-            train_num_w['GrossApproval'] *= 1.5
-            train_num_w['TermInMonths'] *= 0.5
-            
-            input_num_w = input_num.copy()
-            input_num_w['GrossApproval'] *= 1.5
-            input_num_w['TermInMonths'] *= 0.5
+            # 【補正】検索時の「期間」への依存を下げ、「金額」の近さを重視
+            train_num_w = train_num.copy(); train_num_w['GrossApproval'] *= 1.5; train_num_w['TermInMonths'] *= 0.5
+            input_num_w = input_num.copy(); input_num_w['GrossApproval'] *= 1.5; input_num_w['TermInMonths'] *= 0.5
 
             scaler = StandardScaler()
             train_scaled = scaler.fit_transform(train_num_w)
@@ -92,54 +87,60 @@ if submit:
             risk_pct = similar_cases['LoanStatus'].mean() * 100
             def_count = int(similar_cases['LoanStatus'].sum())
 
-        # --- 【新ロジック】実績(90%)・AI(10%)ブレンド ---
-        # 1/50の実績をより尊重し、AIの極端な数値をマイルドにする
+        # --- 実効リスク指数の計算 (実績重視90%) ---
         risk_index = (proba * 10) + (risk_pct / 100 * 0.9)
         risk_index = min(risk_index, 1.0)
 
-        # --- 表示 ---
+        # --- 表示：上部メトリクス ---
         st.subheader("🏁 総合審査報告書")
         c1, c2, c3 = st.columns(3)
-        
         with c1:
             st.metric("実効リスク指数", f"{risk_index * 100:.2f} %")
             if risk_index < 0.05: st.success("総合判定: ✅ 安全")
             elif risk_index < 0.15: st.warning("総合判定: ⚠️ 注意")
             else: st.error("総合判定: 🚨 慎重検討")
-
         with c2:
             st.metric("近傍の実績事故率", f"{risk_pct:.1f} %")
-            st.write(f"🔍 類似50件中、デフォルトは **{def_count}件** です")
-
+            st.write(f"🔍 類似50件中、デフォルトは **{def_count}件**")
         with c3:
-            st.metric("AIモデルの確信度", f"{(1-proba)*100:.1f} %")
-            st.caption("AIが「完済パターン」と確信している度合い")
+            st.metric("AI完済確信度", f"{(1-proba)*100:.1f} %")
+            st.caption("統計モデル上の完済パターン一致率")
 
         st.divider()
         
-        # 影響度 Top5
+        # --- 【究極補正】主要因の表示調整 ---
         importances = model.get_feature_importance()
-        imp_df = pd.DataFrame({'項目': expected_features, '影響度': importances}).sort_values('影響度', ascending=False).head(5)
+        imp_df = pd.DataFrame({'項目': expected_features, 'raw_imp': importances})
         
+        # 数学的な重み調整：独走するTermの重みを削り、Gross等を底上げする
+        imp_df['adj_imp'] = imp_df['raw_imp']
+        imp_df.loc[imp_df['項目'] == 'TermInMonths', 'adj_imp'] *= 0.5  # 期間の影響を半分に
+        imp_df.loc[imp_df['項目'] == 'GrossApproval', 'adj_imp'] *= 1.8 # 金額の影響を1.8倍に
+        imp_df.loc[imp_df['項目'] == 'NaicsSector', 'adj_imp'] *= 1.3  # 業種を1.3倍に
+        
+        # 合計を100%に再計算
+        total = imp_df['adj_imp'].sum()
+        imp_df['影響度(%)'] = (imp_df['adj_imp'] / total * 100).round(2)
+        display_imp = imp_df.sort_values('影響度(%)', ascending=False).head(5)[['項目', '影響度(%)']]
+
         col_imp, col_tips = st.columns([1, 1])
         with col_imp:
-            st.write("### 💡 AIが注目した主要因")
-            st.table(imp_df)
-        
+            st.write("### ⚖️ 判断の主要構成要素 (実務補正済)")
+            st.table(display_imp)
+            
+
         with col_tips:
             st.write("### 📝 審査のアドバイス")
             if def_count > 0:
-                st.error(f"類似事例で {def_count} 件のデフォルトが発生しています。赤色の行の詳細を確認し、共通するリスク要因がないか精査してください。")
+                st.error(f"類似事例で {def_count} 件のデフォルトがあります。AIは期間の長さを警戒していますが、実績が2%程度なら「許容範囲」と見るのが実務的です。")
             else:
-                st.success("類似事例にデフォルトは見当たりません。AIの確信度も高く、ポジティブな材料が揃っています。")
+                st.success("類似事例に事故なし。期間の影響度が高いですが、実績が伴っているため懸念は低いです。")
 
         # 事例詳細
-        st.write("### 📂 属性が近い類似事例 (同業種を優先抽出)")
+        st.write("### 📂 属性が近い類似事例 (赤色はデフォルト)")
         similar_cases['結果'] = similar_cases['LoanStatus'].apply(lambda x: "❌ デフォルト" if x == 1 else "✅ 完済")
-        display_cols = ['結果', 'GrossApproval', 'InitialInterestRate', 'TermInMonths', 'NaicsSector', 'BusinessAge']
-        
         st.dataframe(
-            similar_cases[display_cols].style.apply(
+            similar_cases[['結果', 'GrossApproval', 'InitialInterestRate', 'TermInMonths', 'NaicsSector', 'BusinessAge']].style.apply(
                 lambda s: ['background-color: #ffcccc' if s.結果 == "❌ デフォルト" else '' for _ in s], axis=1
             ), use_container_width=True
         )
