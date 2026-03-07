@@ -118,9 +118,9 @@ if submit:
             # 【重要】特定の項目に偏りすぎないよう、補正係数を導入
             # 返済期間の raw 影響度が高すぎるため、0.4倍して他の項目を目立たせる
             imp_df['adj'] = imp_df['raw']
-            imp_df.loc[imp_df['項目'] == '返済期間', 'adj'] *= 0.4
-            imp_df.loc[imp_df['項目'] == '融資額', 'adj'] *= 1.5
-            imp_df.loc[imp_df['項目'] == '業界', 'adj'] *= 1.2
+            imp_df.loc[imp_df['項目'] == '返済期間', 'adj'] *= 0.3
+            imp_df.loc[imp_df['項目'] == '融資額', 'adj'] *= 1.7
+            imp_df.loc[imp_df['項目'] == '業界', 'adj'] *= 1.1
             
             # 再計算
             total_adj = imp_df['adj'].sum()
