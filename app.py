@@ -26,8 +26,8 @@ def load_resources():
     model = CatBoostClassifier()
     model.load_model("catboost_model.cbm")
     try:
+        # アップロードされた最新のファイル名に合わせています
         train_df = pd.read_csv("train (4).csv")
-        # 業界名を正規化
         train_df['NaicsSector'] = train_df['NaicsSector'].astype(str)
     except:
         train_df = pd.DataFrame()
@@ -51,7 +51,12 @@ with st.sidebar:
 
 if submit:
     try:
-        # --- A. AI予測 ---
+        # --- 0. 変数の初期化 (エラー防止) ---
+        similar_cases = pd.DataFrame()
+        risk_pct = 0.0
+        def_count = 0
+
+        # --- A. AI予測 (2000件超の知見) ---
         input_data = {
             "GrossApproval": float(gross), "SBAGuaranteedApproval": float(sba),
             "InitialInterestRate": float(rate), "TermInMonths": float(term),
@@ -64,20 +69,19 @@ if submit:
         cat_idx = [i for i, col in enumerate(input_df.columns) if input_df[col].dtype == 'object']
         proba = model.predict_proba(Pool(input_df, cat_features=cat_idx))[0][1]
 
-        # --- B. 類似事例検索 (全データ・ハイブリッド) ---
-        risk_pct, def_count = 0.0, 0
+        # --- B. 類似事例検索 (精度重視のハイブリッド) ---
         if not train_df.empty:
             search_features = ["GrossApproval", "InitialInterestRate", "TermInMonths"]
             train_num = train_df[search_features].fillna(0)
             input_num = input_df[search_features].fillna(0)
             
-            # 【最高精度重み】金額 1.5倍 / 期間 0.5倍
+            # 検索重み: 金額 1.5倍 / 期間 0.5倍
             weights_search = np.array([1.5, 1.0, 0.5]) 
             scaler = StandardScaler()
             train_scaled = (scaler.fit_transform(train_num)) * weights_search
             input_scaled = (scaler.transform(input_num)) * weights_search
 
-            # 業界一致にボーナス
+            # 業界一致ペナルティ
             sector_penalty = (train_df['NaicsSector'] != sector_en).astype(float).values * 1.0
             train_final = np.column_stack([train_scaled, sector_penalty])
             input_final = np.append(input_scaled, 0.0).reshape(1, -1)
@@ -89,15 +93,12 @@ if submit:
             risk_pct = similar_cases['LoanStatus'].mean() * 100
             def_count = int(similar_cases['LoanStatus'].sum())
 
-        # --- C. 【重要：実務厳格化補正】 ---
-        # 1. AI予測値の補正 (どんなに安全でも1%のリスクを想定)
+        # --- C. 【実務厳格化補正】実効リスク指数の計算 ---
         strict_proba = np.clip(proba, 0.01, 0.99)
-        # 2. 実績事故率の補正 (0件でも「+0.5件」の不確実性を加味)
         strict_risk_pct = (def_count + 0.5) / (50 + 1)
-        # 3. 5:5 ブレンド
         risk_index = (strict_proba * 0.5) + (strict_risk_pct * 0.5)
 
-        # --- D. 画面表示 ---
+        # --- D. 画面表示: メトリクス ---
         st.subheader("🏁 総合審査報告書")
         c1, c2, c3 = st.columns(3)
         with c1:
@@ -115,7 +116,6 @@ if submit:
             st.metric("実績事故率 (近傍)", f"{risk_pct:.1f} %")
             st.markdown(f"🔍 類似50件中、デフォルトは **{def_count}件**")
         with c3:
-            # 100.0%という表示を避け、信頼感を現実的に
             display_conf = min((1 - strict_proba) * 100, 98.9)
             st.metric("AI完済期待値", f"{display_conf:.1f} %")
             st.caption("全データ(2000件超)に基づく統計予測")
@@ -139,23 +139,23 @@ if submit:
 
         with col_tips:
             st.write("### 📝 審査のアドバイス")
-            if status == "安全" and display_conf > 98:
-                st.success("✅ **【極めて健全】** AIと過去実績が共に高い安全性を認めています。")
-                st.write("特に期間と担保条件が優良です。")
+            if status == "安全":
+                st.success("✅ **【承認推奨】** 全統計と近傍実績の両面で高い安全性が確認されました。")
             elif status == "注意":
-                st.warning("⚠️ **【要精査】** AI予測と現場の実績にわずかな乖離があります。")
-                st.write("直近の不履行事例（赤色の行）との共通点がないか確認してください。")
-            elif status == "危険":
-                st.error("🚨 **【否決推奨】** 統計的・実績的にデフォルトの危険域です。")
-                st.write("返済原資の確実性を再検討し、不可なら否決を検討してください。")
+                st.warning("⚠️ **【要精査】** 統計的には安全ですが、近傍で事故が発生しています。条件付き承認を検討してください。")
+            else:
+                st.error("🚨 **【否決推奨】** 実績・統計ともにデフォルト圏内です。担保の再評価が必要です。")
 
-        # --- F. 事例詳細 ---
+        # --- F. 事例詳細 (エラー回避済) ---
         st.write(f"### 📂 属性が近い類似事例 (全データから抽出)")
-        similar_cases['結果'] = similar_cases['LoanStatus'].apply(lambda x: "❌ デフォルト" if x == 1 else "✅ 完済")
-        similar_cases['業種'] = similar_cases['NaicsSector'].map(SECTOR_TRANSLATE).fillna(similar_cases['NaicsSector'])
-        st.dataframe(similar_cases[['結果', 'GrossApproval', 'InitialInterestRate', 'TermInMonths', '業種']].style.apply(
-            lambda s: ['background-color: #ffcccc' if s.結果 == "❌ デフォルト" else '' for _ in s], axis=1
-        ), use_container_width=True)
+        if not similar_cases.empty:
+            similar_cases['結果'] = similar_cases['LoanStatus'].apply(lambda x: "❌ デフォルト" if x == 1 else "✅ 完済")
+            similar_cases['業種'] = similar_cases['NaicsSector'].map(SECTOR_TRANSLATE).fillna(similar_cases['NaicsSector'])
+            st.dataframe(similar_cases[['結果', 'GrossApproval', 'InitialInterestRate', 'TermInMonths', '業種']].style.apply(
+                lambda s: ['background-color: #ffcccc' if s.結果 == "❌ デフォルト" else '' for _ in s], axis=1
+            ), use_container_width=True)
+        else:
+            st.info("類似事例データが見つかりませんでした。")
 
     except Exception as e:
         st.error(f"システムエラー: {e}")
