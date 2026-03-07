@@ -105,45 +105,38 @@ if submit:
         imp_df['影響度(%)'] = (imp_df['adj'] / total_adj * 100).round(2)
         display_imp = imp_df.sort_values('影響度(%)', ascending=False).head(5)[['項目', '影響度(%)']]
 
-        # --- D. 実効リスク指数 (実績重視 90%) ---
-        risk_index = (proba * 0.1) + (risk_pct / 100 * 0.9)
-
-        # --- E. 画面表示 ---
+       # --- E. 画面表示 ---
         st.subheader("🏁 総合審査報告書")
         c1, c2, c3 = st.columns(3)
         with c1:
             st.metric("実効リスク指数", f"{risk_index * 100:.2f} %")
-            if risk_index < 0.05: status = "安全"; st.success(f"総合判定: ✅ {status}")
-            elif risk_index < 0.15: status = "注意"; st.warning(f"総合判定: ⚠️ {status}")
-            else: status = "危険"; st.error(f"総合判定: 🚨 慎重検討（否決推奨）")
+            # 判定しきい値を調整（全データを含むため、より精緻な判断が可能）
+            if risk_index < 0.08: status = "安全"; st.success(f"総合判定: ✅ {status}")
+            elif risk_index < 0.20: status = "注意"; st.warning(f"総合判定: ⚠️ {status}")
+            else: status = "危険"; st.error(f"総合判定: 🚨 慎重検討")
         with c2:
-            st.metric("実績事故率", f"{risk_pct:.1f} %")
-            st.markdown(f"🔍 類似50件中、デフォルトは **{def_count}件**")
+            st.metric("近傍の実績事故率", f"{risk_pct:.1f} %")
+            st.caption("類似50件の生データ")
         with c3:
-            st.metric("AI完済確信度", f"{(1-proba)*100:.1f} %")
+            st.metric("AI完済期待値", f"{(1-proba)*100:.1f} %")
+            st.caption("全2000件超の学習モデル")
 
-        st.divider()
-
-        # --- F. 主要因 & 詳しいアドバイス ---
-        col_imp, col_tips = st.columns(2)
-        with col_imp:
-            st.write("### ⚖️ 判断の主要構成要素 (%)")
-            st.table(display_imp) # グラフを消去しテーブルのみ
-
+        # --- F. 主要因 & アドバイス（AIと実績の乖離を分析） ---
         with col_tips:
             st.write("### 📝 審査のアドバイス")
+            # AIと実績のギャップを捉える
+            if abs(proba - (risk_pct/100)) > 0.15:
+                st.info("💡 **【分析】モデルと実績に乖離あり**")
+                st.write("全体的な統計パターンと、目の前の類似事例で結果が分かれています。このような場合は、表示されている類似事例（赤色の行）の特異な要因（業種や期間）を念入りに確認してください。")
+            
             if status == "危険":
-                st.error("🚨 **【否決推奨】過去実績に基づくリスクが許容不能**")
-                st.write(f"類似案件のデフォルト率が {risk_pct:.1f}% と非常に高い水準です。")
-                st.write("この条件での融資は過去に多くの事故を招いており、承認には強力な裏付けが必要です。")
+                st.error("🚨 **否決を強く推奨します**")
+                st.write("全データの統計、および近傍の実績の両方が高いリスクを示しています。")
             elif status == "注意":
-                st.warning("⚠️ **【要確認】条件の再考が必要な案件**")
-                st.write(f"実績事故率（{def_count}件）が懸念材料です。AIは完済を予測していますが、現場の実績はシビアです。")
-                st.write("返済期間の短縮や、保証比率のアップを条件にすることを推奨します。")
+                st.warning("⚠️ **慎重な個別審査が必要です**")
+                st.write("リスクが中域にあります。保証枠の拡大や、担保の再評価を検討してください。")
             else:
-                st.success("✅ **【承認推奨】データ上は極めて健全**")
-                st.write("AI予測・実績事故率（0〜1件）ともに優秀です。現行条件での承認を強く推奨します。")
-
+                st.success("✅ **前向きな検討が可能です**")
         # --- G. 事例詳細 ---
         st.write(f"### 📂 属性が近い類似事例 (全業界から抽出)")
         similar_cases['結果'] = similar_cases['LoanStatus'].apply(lambda x: "❌ デフォルト" if x == 1 else "✅ 完済")
