@@ -87,7 +87,7 @@ if submit:
             # --- C. 【新バランス】実効リスク指数の計算 ---
             # AI(30%):実績(70%) に配分し、実績のノイズを100件分母で平滑化
             strict_proba = np.clip(raw_proba, 0.03, 0.97) 
-            risk_index = (strict_proba * 0.3) + (risk_pct / 100 * 0.7)
+            risk_index = (strict_proba * 0.4) + (risk_pct / 100 * 0.6)
 
             # --- D. 画面表示 ---
             st.subheader("🏁 総合審査報告書（100件クロスバリデーション版）")
