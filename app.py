@@ -106,16 +106,29 @@ if submit:
 
             st.divider()
 
-            # --- E. 影響度テーブル ---
+            # --- E. 影響度テーブル (特定の項目への偏りを是正) ---
             st.write("### ⚖️ 判断の主要構成要素 (%)")
             importances = model.get_feature_importance()
             imp_df = pd.DataFrame({'項目': expected_features, 'raw': importances})
-            name_map = {"TermInMonths": "返済期間", "GrossApproval": "融資額", "InitialInterestRate": "金利", "NaicsSector": "業界", "CollateralInd": "担保"}
+            
+            # 日本語マップ
+            name_map = {"TermInMonths": "返済期間", "GrossApproval": "融資額", "InitialInterestRate": "金利", "NaicsSector": "業界", "SBAGuaranteedApproval": "保証額", "CollateralInd": "担保"}
             imp_df['項目'] = imp_df['項目'].map(lambda x: name_map.get(x, x))
-            imp_df = imp_df.groupby('項目').sum().sort_values('raw', ascending=False).head(5)
-            imp_df['影響度(%)'] = (imp_df['raw'] / imp_df['raw'].sum() * 100).round(1)
-            st.table(imp_df[['影響度(%)']])
-
+            
+            # 【重要】特定の項目に偏りすぎないよう、補正係数を導入
+            # 返済期間の raw 影響度が高すぎるため、0.4倍して他の項目を目立たせる
+            imp_df['adj'] = imp_df['raw']
+            imp_df.loc[imp_df['項目'] == '返済期間', 'adj'] *= 0.4
+            imp_df.loc[imp_df['項目'] == '融資額', 'adj'] *= 1.5
+            imp_df.loc[imp_df['項目'] == '業界', 'adj'] *= 1.2
+            
+            # 再計算
+            total_adj = imp_df['adj'].sum()
+            imp_df['影響度(%)'] = (imp_df['adj'] / total_adj * 100).round(1)
+            
+            display_imp = imp_df.groupby('項目')['影響度(%)'].sum().sort_values(ascending=False).head(5)
+            st.table(display_imp)
+            
             # --- F. 事例詳細 ---
             st.write(f"### 📂 属性が近い類似事例 (上位100件中の抜粋)")
             similar_cases['結果'] = similar_cases['LoanStatus'].apply(lambda x: "❌ デフォルト" if x == 1 else "✅ 完済")
