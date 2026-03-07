@@ -113,6 +113,7 @@ if submit:
                 st.markdown(f"🔍 うち不履行事例: **{def_count}件**")
             with c3:
                 st.metric("完済期待値 (保守的評価)", f"{final_expected_success:.1f} %")
+                st.caption(f"※{file_name}の実績に基づきデフォルトの割合に合わせて修正")
 
             st.divider()
 
