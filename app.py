@@ -87,7 +87,7 @@ if submit:
             risk_pct = similar_cases['LoanStatus'].mean() * 100
             def_count = int(similar_cases['LoanStatus'].sum())
 
-        # --- 実効リスク指数の計算 (実績重視90%) ---
+       # --- 実効リスク指数の計算 (実績重視90%) ---
         risk_index = (proba * 10) + (risk_pct / 100 * 0.9)
         risk_index = min(risk_index, 1.0)
 
@@ -96,35 +96,53 @@ if submit:
         c1, c2, c3 = st.columns(3)
         with c1:
             st.metric("実効リスク指数", f"{risk_index * 100:.2f} %")
-            if risk_index < 0.05: st.success("総合判定: ✅ 安全")
-            elif risk_index < 0.15: st.warning("総合判定: ⚠️ 注意")
-            else: st.error("総合判定: 🚨 慎重検討")
+            # 判定しきい値を厳格化：15%以上は一律で「慎重検討」
+            if risk_index < 0.05: 
+                st.success("総合判定: ✅ 安全")
+            elif risk_index < 0.15: 
+                st.warning("総合判定: ⚠️ 注意")
+            else: 
+                st.error("総合判定: 🚨 慎重検討（否決推奨）")
+        
         with c2:
             st.metric("近傍の実績事故率", f"{risk_pct:.1f} %")
-            st.write(f"🔍 類似50件中、デフォルトは **{def_count}件**")
+            # 不履行数を強調して表示
+            st.markdown(f"🔍 類似50件中、デフォルトは **{def_count}件** です")
+        
         with c3:
             st.metric("AI完済確信度", f"{(1-proba)*100:.1f} %")
             st.caption("統計モデル上の完済パターン一致率")
 
         st.divider()
         
-        # --- 【究極補正】主要因の表示調整 ---
-        importances = model.get_feature_importance()
-        imp_df = pd.DataFrame({'項目': expected_features, 'raw_imp': importances})
-        
-        # 数学的な重み調整：独走するTermの重みを削り、Gross等を底上げする
-        imp_df['adj_imp'] = imp_df['raw_imp']
-        imp_df.loc[imp_df['項目'] == 'TermInMonths', 'adj_imp'] *= 0.5  # 期間の影響を半分に
-        imp_df.loc[imp_df['項目'] == 'GrossApproval', 'adj_imp'] *= 1.8 # 金額の影響を1.8倍に
-        imp_df.loc[imp_df['項目'] == 'NaicsSector', 'adj_imp'] *= 1.3  # 業種を1.3倍に
-        
-        # 合計を100%に再計算
-        total = imp_df['adj_imp'].sum()
-        imp_df['影響度(%)'] = (imp_df['adj_imp'] / total * 100).round(2)
-        display_imp = imp_df.sort_values('影響度(%)', ascending=False).head(5)[['項目', '影響度(%)']]
-
+        # --- 審査のアドバイス (実績連動・完全動的ロジック) ---
         col_imp, col_tips = st.columns([1, 1])
+        with col_tips:
+            st.write("### 📝 審査のアドバイス")
+            
+            # 【重要】def_count（不履行数）に基づいた厳格なメッセージ分岐
+            if def_count >= 15: # 17件の場合はここに該当
+                st.error(f"🚨 **【警告】極めて高い不履行率を確認**")
+                st.write(f"類似事例の30%以上（現在は {risk_pct:.1f}%）がデフォルトしています。これは統計的に「地雷原」と言える数値です。AIの確信度にかかわらず、本案件の承認は極めて危険です。")
+            
+            elif def_count >= 5:
+                st.error(f"⚠️ **【警戒】実績ベースでのリスク高騰**")
+                st.write(f"50件中 {def_count} 件の事故を確認。現場の実績はAIの予測以上にシビアです。赤色の行を精査し、共通のマイナス要因がないか確認してください。")
+            
+            elif def_count >= 1:
+                st.warning(f"💡 **【注意】個別事例の精査が必要**")
+                st.write(f"少数ですが不履行が発生しています。事故率は {risk_pct:.1f}% と低いですが、赤色の事例と本案件に類似したリスクがないか確認してください。")
+            
+            elif (1-proba) < 0.6: # 実績は0だがAIが不安視している場合
+                st.info(f"🤔 **【AI慎重】実績は良好ですが、属性に不安あり**")
+                st.write("過去の類似事例に事故はありませんが、AIは統計上のリスク（期間や金利）を指摘しています。担保状況を再確認してください。")
+            
+            else:
+                st.success("✅ **【良好】実績・予測ともに極めて安全**")
+                st.write("類似事例に事故はゼロです。データ上、非常に堅実な案件と判断されます。")
+
         with col_imp:
+            # --- 【補正済】影響度表示（ここは既存の補正ロジックを維持） ---
             st.write("### ⚖️ 判断の主要構成要素 (実務補正済)")
             st.table(display_imp)
             
