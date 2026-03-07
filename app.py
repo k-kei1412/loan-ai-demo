@@ -16,6 +16,7 @@ def load_resources():
     model = CatBoostClassifier()
     model.load_model("catboost_model.cbm")
     try:
+        # train.csv または train (4).csv を使用
         target = "train.csv" if os.path.exists("train.csv") else "train (4).csv"
         df = pd.read_csv(target)
         df['NaicsSector'] = df['NaicsSector'].astype(str)
@@ -46,7 +47,7 @@ if submit:
         st.error("学習データが見つかりません。")
     else:
         try:
-            # --- A. AI予測 ---
+            # --- A. AI予測 (catboost_model.cbm を使用) ---
             input_data = {
                 "GrossApproval": float(gross), "SBAGuaranteedApproval": float(sba),
                 "InitialInterestRate": float(rate), "TermInMonths": float(term),
@@ -59,7 +60,7 @@ if submit:
             cat_idx = [i for i, col in enumerate(input_df.columns) if input_df[col].dtype == 'object']
             raw_proba = model.predict_proba(Pool(input_df, cat_features=cat_idx))[0][1]
 
-            # --- B. 類似事例検索 (100件) ---
+            # --- B. 類似事例検索 (train.csv を使用) ---
             search_pool = train_df[train_df['NaicsSector'] == sector_en].copy()
             if len(search_pool) < 100:
                 search_pool = train_df.copy()
@@ -85,11 +86,13 @@ if submit:
             strict_proba = np.clip(raw_proba, 0.03, 0.97) 
             risk_index = (strict_proba * 0.4) + (risk_pct / 100 * 0.6)
             
-            # 整合性を取るため、期待値をリスク指数から逆算
-            final_expected_success = (1 - risk_index) * 100
+            # --- 【厳格化】完済期待値の算出 ---
+            # リスクが 14% なら期待値は 86%。さらに不確実性として「安全マージン」を引き去ります
+            # リスクの 1.2倍を差し引くことで、より銀行員らしい慎重な期待値にします
+            final_expected_success = max(0.0, (1 - (risk_index * 1.2)) * 100)
 
             # --- D. 画面表示 ---
-            st.subheader("🏁 総合審査報告書（100件クロスバリデーション版）")
+            st.subheader("🏁 総合審査報告書")
             c1, c2, c3 = st.columns(3)
             
             with c1:
@@ -107,33 +110,35 @@ if submit:
                 st.metric(f"実績事故率 (類似100件)", f"{risk_pct:.1f} %")
                 st.markdown(f"🔍 うち不履行事例: **{def_count}件**")
             with c3:
-                st.metric("完済期待値 (実績加味)", f"{final_expected_success:.1f} %")
-                st.caption("※AI予測と現場実績を統合した最終数値")
+                st.metric("完済期待値 (厳格評価)", f"{final_expected_success:.1f} %")
+                st.caption("※実績事故率を1.2倍の重みで差し引いた保守的評価")
 
             st.divider()
 
-            # --- E. 審査アドバイス (数値完全連動型) ---
+            # --- E. 審査アドバイス ---
             st.write("### 📝 審査アドバイス")
-            def_rate_text = f"{risk_pct:.1f}"
             def_count_text = int(def_count)
-            
             if status == "安全":
-                st.info(f"AI予測と類似実績が共に良好です。類似100件のうち不履行は{def_count_text}件（{def_rate_text}%）であり、標準的な審査手順での承認を推奨します。")
+                st.info(f"AI予測と実績が共に良好。類似事例100件中の不履行は{def_count_text}件に留まります。")
             elif status == "注意":
-                st.warning(f"実効リスクが {risk_index*100:.1f}% に達しています。実際に類似案件を100件精査したところ、{def_count_text}件 がデフォルトしています。慎重な判断が必要です。")
+                st.warning(f"実効リスクが上昇中。類似案件100件中 **{def_count_text}件** がデフォルトしており、完済期待値は {final_expected_success:.1f}% まで低下しています。")
             else:
-                st.error(f"警告：実績事故率が {def_rate_text}% と極めて高い水準です。100件中 {def_count_text}件 が不履行となっており、現条件での承認は強く再考を要します。")
-
-            with st.expander("💡 条件交渉のヒント"):
-                st.write("・リスク指数の上昇原因を「影響度テーブル」で確認してください。")
-                if rate < 7.0:
-                    st.write("・リスクに対して収益性が不足している可能性があります。金利の再設定を検討してください。")
-                if term > 120:
-                    st.write("・返済期間の短縮、または中途での担保評価見直しを条件に加えることを検討してください。")
+                st.error(f"警告：実績事故率が極めて高い。100件中 **{def_count_text}件** の不履行実績があり、現条件での承認は非推奨です。")
 
             st.divider()
 
-            # --- F. 影響度テーブル (補正済み) ---
+            # --- F. データの透明性：何を使っているか ---
+            with st.expander("🔍 この判定に使用されている学習データの項目"):
+                st.write("**1. CatBoostモデルの学習結果 (`catboost_model.cbm`)**")
+                st.write("過去約7,500件の全データから「返済期間」「金利」「融資額」「業界」などの相関関係を学習した統計的予測です。")
+                st.write("**2. 直近実績データ (`train.csv`)**")
+                st.write("入力された条件と以下の項目が「近い」100件を直接抽出しています：")
+                st.table(pd.DataFrame({
+                    "項目名": ["GrossApproval", "InitialInterestRate", "TermInMonths", "NaicsSector", "LoanStatus"],
+                    "用途": ["融資金額の近さ", "設定金利の近さ", "返済期間の近さ", "同一業界への絞り込み", "過去の完済(0)/事故(1)の実績"]
+                }))
+
+            # --- G. 影響度テーブル (補正済み) ---
             st.write("### ⚖️ 判断の主要構成要素 (%)")
             importances = model.get_feature_importance()
             imp_df = pd.DataFrame({'項目': expected_features, 'raw': importances})
@@ -143,19 +148,10 @@ if submit:
             imp_df['adj'] = imp_df['raw']
             imp_df.loc[imp_df['項目'] == '返済期間', 'adj'] *= 0.3
             imp_df.loc[imp_df['項目'] == '融資額', 'adj'] *= 1.7
-            imp_df.loc[imp_df['項目'] == '業界', 'adj'] *= 1.1
             
             total_adj = imp_df['adj'].sum()
             imp_df['影響度(%)'] = (imp_df['adj'] / total_adj * 100).round(1)
-            display_imp = imp_df.groupby('項目')['影響度(%)'].sum().sort_values(ascending=False).head(5)
-            st.table(display_imp)
-            
-            # --- G. 事例詳細 ---
-            st.write(f"### 📂 属性が近い類似事例 (上位100件中の抜粋)")
-            similar_cases['結果'] = similar_cases['LoanStatus'].apply(lambda x: "❌ デフォルト" if x == 1 else "✅ 完済")
-            st.dataframe(similar_cases[['結果', 'GrossApproval', 'InitialInterestRate', 'TermInMonths', 'NaicsSector']].head(50).style.apply(
-                lambda s: ['background-color: #ffcccc' if s.結果 == "❌ デフォルト" else '' for _ in s], axis=1
-            ), use_container_width=True)
+            st.table(imp_df.groupby('項目')['影響度(%)'].sum().sort_values(ascending=False).head(5))
 
         except Exception as e:
-            st.error(f"システムエラー: {e}")
+            st.error(f"エラー: {e}")
