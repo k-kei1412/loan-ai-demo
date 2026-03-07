@@ -84,13 +84,13 @@ if submit:
 
             # --- C. 【新】超厳格リスク指数の計算 ---
             strict_proba = np.clip(raw_proba, 0.03, 0.97) 
-            risk_index = (strict_proba * 0.4) + (risk_pct / 100 * 0.6)
+            risk_index = (strict_proba * 0.3) + (risk_pct / 100 * 0.7)
             
             # --- D. 【銀行員仕様】期待値のペナルティ補正 ---
             # 事故率と完済率に7倍の差があるような不安定な状況を考慮。
             # リスクが 10% を超えた場合、期待値を指数関数的に下げることで、
             # 現場の「一度崩れると止まらない」感覚を再現します。
-            penalty = 1.0 + (risk_index * 2.0) # リスクが高いほど引き去る割合を増やす
+            penalty = 1.0 + (risk_index * 5.0) # リスクが高いほど引き去る割合を増やす
             final_expected_success = max(0.0, (1 - (risk_index * penalty)) * 100)
 
             # --- E. 画面表示 ---
