@@ -9,7 +9,7 @@ from sklearn.preprocessing import StandardScaler
 st.set_page_config(page_title="ローン審査AI：究極完全体", layout="wide")
 st.title("🏦 中小企業向けローン返済予測 AIシステム")
 
-# NAICSコード辞書
+# NAICSコード辞書（日本語対応）
 NAICS_MAP = {
     "11": "農業・林業・漁業", "21": "鉱業・採掘", "22": "電気・ガス・水道",
     "23": "建設業", "31": "製造業", "42": "卸売業", "44": "小売業",
@@ -26,7 +26,7 @@ def load_resources():
     model.load_model("catboost_model.cbm")
     try:
         train_df = pd.read_csv("train.csv")
-        # 読み込み時に型を安定させる
+        # 型の不一致を防ぐため読み込み時にキャスト
         train_df['NaicsSector'] = train_df['NaicsSector'].astype(str)
     except:
         train_df = pd.DataFrame()
@@ -35,7 +35,7 @@ def load_resources():
 model, train_df = load_resources()
 expected_features = model.feature_names_
 
-# 3. 入力フォーム
+# 3. 入力フォーム（サイドバー）
 st.sidebar.header("📋 申請者情報入力")
 with st.sidebar:
     gross = st.number_input("融資額 ($)", 0, 10000000, 50000)
@@ -46,7 +46,14 @@ with st.sidebar:
     jobs = st.number_input("雇用人数", 0, 1000, 5)
     subprogram = st.text_input("ローンプログラム", "7(a)")
     rate_type = st.selectbox("金利タイプ", ["Fixed", "Variable"])
-    sector_code = st.selectbox("産業セクター", options=list(NAICS_MAP.keys()), format_func=lambda x: f"{x}: {NAICS_MAP[x]}", index=6)
+    
+    sector_code = st.selectbox(
+        "産業セクター", 
+        options=list(NAICS_MAP.keys()), 
+        format_func=lambda x: f"{x}: {NAICS_MAP[x]}",
+        index=6
+    )
+    
     district = st.number_input("地区コード", 1, 60, 10)
     business_type = st.selectbox("企業形態", ["CORPORATION", "INDIVIDUAL", "PARTNERSHIP"])
     business_age = st.selectbox("企業年齢", ["Startup", "Existing"])
@@ -68,21 +75,23 @@ if submit:
     input_df = pd.DataFrame([raw_input]).reindex(columns=expected_features)
 
     try:
-        # --- AI予測 ---
+        # --- A. AI予測 ---
         cat_idx = [i for i, col in enumerate(input_df.columns) if input_df[col].dtype == 'object']
         pool = Pool(input_df, cat_features=cat_idx)
         proba = model.predict_proba(pool)[0][1]
 
-        # --- 類似事例検索 ---
+        # --- B. 類似事例検索 ---
         if not train_df.empty:
-            filtered_df = train_df[train_df['NaicsSector'].str.startswith(str(sector_code))].copy()
+            # 検索時はNaicsSectorを前方一致でフィルタリング
+            filtered_df = train_df[train_df['NaicsSector'].astype(str).str.startswith(str(sector_code))].copy()
             search_pool = filtered_df if len(filtered_df) >= 50 else train_df.copy()
-            
+
+            # 文字列（業種名など）を含まないように、計算用の特徴量を厳選
             search_features = ["GrossApproval", "InitialInterestRate", "TermInMonths"]
             train_num = search_pool[search_features].apply(pd.to_numeric, errors='coerce').fillna(0)
             input_num = input_df[search_features].apply(pd.to_numeric, errors='coerce').fillna(0)
             
-            # 重み付け
+            # 重み付け補正
             train_num_w = train_num.copy(); train_num_w['GrossApproval'] *= 1.5; train_num_w['TermInMonths'] *= 0.5
             input_num_w = input_num.copy(); input_num_w['GrossApproval'] *= 1.5; input_num_w['TermInMonths'] *= 0.5
 
@@ -98,11 +107,18 @@ if submit:
             risk_pct = similar_cases['LoanStatus'].mean() * 100
             def_count = int(similar_cases['LoanStatus'].sum())
 
-        # --- 影響度計算 (日本語化) ---
+        # --- C. 影響度計算 (表示の前に定義・日本語化) ---
         importances = model.get_feature_importance()
-        name_map = {"TermInMonths": "返済期間", "GrossApproval": "融資総額", "InitialInterestRate": "初期金利", "NaicsSector": "産業セクター", "SBAGuaranteedApproval": "SBA保証額"}
+        name_map = {
+            "TermInMonths": "返済期間", 
+            "GrossApproval": "融資総額", 
+            "InitialInterestRate": "初期金利", 
+            "NaicsSector": "産業セクター", 
+            "SBAGuaranteedApproval": "SBA保証額"
+        }
         imp_df = pd.DataFrame({'項目': [name_map.get(f, f) for f in expected_features], 'raw_imp': importances})
         
+        # 実務的な重み調整
         imp_df['adj_imp'] = imp_df['raw_imp']
         imp_df.loc[imp_df['項目'] == '返済期間', 'adj_imp'] *= 0.5
         imp_df.loc[imp_df['項目'] == '融資総額', 'adj_imp'] *= 1.8
@@ -112,26 +128,33 @@ if submit:
         imp_df['影響度(%)'] = (imp_df['adj_imp'] / total * 100).round(2)
         display_imp = imp_df.sort_values('影響度(%)', ascending=False).head(5)[['項目', '影響度(%)']]
 
-        # --- リスク指数 ---
+        # --- D. 実効リスク指数の計算 (実績重視90%) ---
         risk_index = (proba * 10) + (risk_pct / 100 * 0.9)
         risk_index = min(risk_index, 1.0)
 
-        # --- 表示 ---
+        # --- E. 表示：上部メトリクス ---
         st.subheader("🏁 総合審査報告書")
         c1, c2, c3 = st.columns(3)
         with c1:
             st.metric("実効リスク指数", f"{risk_index * 100:.2f} %")
-            if risk_index < 0.15: 
-                st.warning("総合判定: ⚠️ 注意") if risk_index >= 0.05 else st.success("総合判定: ✅ 安全")
-            else:
+            if risk_index >= 0.15:
                 st.error("総合判定: 🚨 慎重検討（否決推奨）")
+            elif risk_index >= 0.05:
+                st.warning("総合判定: ⚠️ 注意")
+            else:
+                st.success("総合判定: ✅ 安全")
+        
         with c2:
             st.metric("近傍の実績事故率", f"{risk_pct:.1f} %")
-            st.markdown(f"🔍 類似50件（**{NAICS_MAP[sector_code]}**）中、デフォルトは **{def_count}件**")
+            st.markdown(f"🔍 類似50件（**{NAICS_MAP.get(sector_code)}**）中、デフォルトは **{def_count}件**")
+        
         with c3:
             st.metric("AI完済確信度", f"{(1-proba)*100:.1f} %")
+            st.caption("統計モデル上の完済パターン一致率")
 
         st.divider()
+        
+        # --- F. 主要因 & 動的アドバイス ---
         col_imp, col_tips = st.columns([1, 1])
         with col_imp:
             st.write("### ⚖️ 判断の主要構成要素 (実務補正済)")
@@ -141,22 +164,32 @@ if submit:
             st.write("### 📝 審査のアドバイス")
             if def_count >= 15:
                 st.error(f"🚨 **【最優先警告】地雷原エリア**")
-                st.write(f"この業種（{NAICS_MAP[sector_code]}）の類似案件は3割以上が不履行です。AIがどう判断しようと、この領域での貸付は極めて高いリスクを伴います。")
+                st.write(f"この業種（{NAICS_MAP.get(sector_code)}）の類似案件は3割以上が不履行です。AIの判断がどうあれ、統計的にこの領域への貸付は極めて危険です。")
             elif def_count >= 5:
                 st.error(f"⚠️ **【警戒】実績リスク高騰**")
-                st.write(f"50件中 {def_count} 件の事故を確認。現場の状況はAIの予測以上にシビアです。")
+                st.write(f"50件中 {def_count} 件の事故を確認。現場の状況はAIの予測以上にシビアです。赤色の事例を精査してください。")
             else:
                 st.success("✅ **【良好】データ上の懸念なし**")
-                st.write("類似事例に事故はほとんど見られません。AIの確信度も踏まえ、前向きに検討可能な案件です。")
+                st.write("類似事例に事故はほとんど見られません。前向きに検討可能な案件です。")
 
-        # --- 事例詳細 (None対策) ---
-        st.write(f"### 📂 属性が近い類似事例 (業種: {NAICS_MAP[sector_code]})")
+        # --- G. 類似事例詳細 (業種名のNone対策) ---
+        st.write(f"### 📂 属性が近い類似事例 (業種: {NAICS_MAP.get(sector_code)})")
         similar_cases['結果'] = similar_cases['LoanStatus'].apply(lambda x: "❌ デフォルト" if x == 1 else "✅ 完済")
         
-        # 【修正】Noneにならないよう、確実に整数に直してからマップする
-        similar_cases['業種名'] = similar_cases['NaicsSector'].apply(lambda x: NAICS_MAP.get(str(int(float(x))), "不明"))
+        # エラー回避型の業種名変換
+        def safe_map_sector(x):
+            try:
+                # 44.0 -> 44 -> "44"
+                key = str(int(float(x)))
+                return NAICS_MAP.get(key, f"不明({x})")
+            except:
+                return "不明"
+
+        similar_cases['業種名'] = similar_cases['NaicsSector'].apply(safe_map_sector)
         
+        # 表示列をご要望通り SBA保証額 を含めて整理
         display_cols = ['結果', 'GrossApproval', 'SBAGuaranteedApproval', 'InitialInterestRate', 'TermInMonths', '業種名']
+        
         st.dataframe(
             similar_cases[display_cols].style.apply(
                 lambda s: ['background-color: #ffcccc' if s.結果 == "❌ デフォルト" else '' for _ in s], axis=1
@@ -164,4 +197,4 @@ if submit:
         )
 
     except Exception as e:
-        st.error(f"エラーが発生しました: {e}")
+        st.error(f"実行中にエラーが発生しました: {e}")
