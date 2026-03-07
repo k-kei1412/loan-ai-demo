@@ -113,7 +113,6 @@ if submit:
                 st.markdown(f"🔍 うち不履行事例: **{def_count}件**")
             with c3:
                 st.metric("完済期待値 (保守的評価)", f"{final_expected_success:.1f} %")
-                st.caption(f"※{file_name}の実績に基づき期待値を下方修正")
 
             st.divider()
 
@@ -142,7 +141,7 @@ if submit:
             st.table(imp_df.groupby('項目')['影響度(%)'].sum().sort_values(ascending=False).head(5))
 
             # --- H. 【復活】類似事例比較 (生データの抽出結果) ---
-            st.write(f"### 📂 属性が近い類似事例 (上位100件中の抜粋：{file_name}から抽出)")
+            st.write(f"### 📂 属性が近い類似事例 (上位100件中の抜粋")
             similar_cases['結果'] = similar_cases['LoanStatus'].apply(lambda x: "❌ 不履行" if x == 1 else "✅ 完済")
             # 銀行員が気にする重要項目に絞って表示
             display_cols = ['結果', 'GrossApproval', 'InitialInterestRate', 'TermInMonths', 'NaicsSector', 'CollateralInd']
