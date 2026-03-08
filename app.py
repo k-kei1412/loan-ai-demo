@@ -120,7 +120,7 @@ if submit:
             imp_df['項目名'] = imp_df['項目'].map(lambda x: name_map.get(x, "その他"))
 
             imp_df['adj'] = imp_df['raw']
-            imp_df.loc[imp_df['項目'] == 'TermInMonths', 'adj'] *= 0.3
+            imp_df.loc[imp_df['項目'] == 'TermInMonths', 'adj'] *= 0.25
             imp_df.loc[imp_df['項目'] == 'GrossApproval', 'adj'] *= 1.7
             imp_df.loc[imp_df['項目'] == 'SBAGuaranteedApproval', 'adj'] *= 0.8
             imp_df.loc[imp_df['項目'] == 'NaicsSector', 'adj'] *= 0.5
