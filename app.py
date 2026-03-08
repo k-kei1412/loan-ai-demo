@@ -131,11 +131,6 @@ if submit:
 
             # --- F. 比較テーブル (保証率を表示) ---
             st.write("### 📂 申請データと類似事例の比較 (上位100件)")
-            my_data = pd.DataFrame([{
-                "結果": "📢 今回の申請", "GrossApproval": gross, 
-                "保証率": current_sba_ratio, "InitialInterestRate": rate, 
-                "TermInMonths": term, "CollateralInd": collateral
-            }])
             similar_cases['結果'] = similar_cases['LoanStatus'].apply(lambda x: "❌ 不履行" if x == 1 else "✅ 完済")
             similar_cases['保証率'] = similar_cases['SBA_Ratio']
             
