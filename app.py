@@ -137,7 +137,8 @@ if submit:
             imp_df.loc[imp_df['項目'] == 'GrossApproval', 'adj'] *= 1.7
             imp_df.loc[imp_df['項目'] == 'SBAGuaranteedApproval', 'adj'] *= 0.8
             imp_df.loc[imp_df['項目'] == 'NaicsSector', 'adj'] *= 0.5
-
+            imp_df.loc[imp_df['項目'] == 'InitialInterestRate', 'adj'] *= 0.9
+            
             main_items = ["返済期間", "融資額", "金利", "業界", "保証率"]
             display_imp = imp_df[imp_df['項目名'].isin(main_items)].groupby('項目名')['adj'].sum().reset_index()
             total_main_adj = display_imp['adj'].sum()
