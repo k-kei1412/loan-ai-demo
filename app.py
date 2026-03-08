@@ -86,7 +86,7 @@ if submit:
 
             # --- C. リスク指数計算 ---
             strict_proba = np.clip(raw_proba, 0.03, 0.97) 
-            risk_index = (strict_proba * 0.3) + (risk_pct / 100 * 0.7)
+            risk_index = (strict_proba * 0.2) + (risk_pct / 100 * 0.8)
             penalty = 1.0 + (risk_index * 7.0)
             final_expected_success = max(0.0, (1 - (risk_index * penalty)) * 100)
 
