@@ -121,7 +121,7 @@ if submit:
 
             imp_df['adj'] = imp_df['raw']
             imp_df.loc[imp_df['項目'] == 'TermInMonths', 'adj'] *= 0.3
-            imp_df.loc[imp_df['項目'] == 'GrossApproval', 'adj'] *= 1.7
+            imp_df.loc[imp_df['項目'] == 'GrossApproval', 'adj'] *= 1.8
 
             main_items = ["返済期間", "融資額", "金利", "業界", "保証率"]
             display_imp = imp_df[imp_df['項目名'].isin(main_items)].groupby('項目名')['adj'].sum().reset_index()
