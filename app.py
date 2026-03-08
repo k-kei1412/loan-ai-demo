@@ -120,8 +120,9 @@ if submit:
             imp_df['項目名'] = imp_df['項目'].map(lambda x: name_map.get(x, "その他"))
 
             imp_df['adj'] = imp_df['raw']
-            imp_df.loc[imp_df['項目'] == 'TermInMonths', 'adj'] *= 0.3
+            imp_df.loc[imp_df['項目'] == 'TermInMonths', 'adj'] *= 0.2
             imp_df.loc[imp_df['項目'] == 'GrossApproval', 'adj'] *= 1.8
+            imp_df.loc[imp_df['項目'] == 'SBAGuaranteedApproval', 'adj'] *= 0.9
 
             main_items = ["返済期間", "融資額", "金利", "業界", "保証率"]
             display_imp = imp_df[imp_df['項目名'].isin(main_items)].groupby('項目名')['adj'].sum().reset_index()
