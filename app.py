@@ -19,7 +19,6 @@ def load_resources():
         target = "train.csv" if os.path.exists("train.csv") else "train (4).csv"
         df = pd.read_csv(target)
         df['NaicsSector'] = df['NaicsSector'].astype(str)
-        # 類似検索・表示用に「保証率」を事前計算
         df['SBA_Ratio'] = (df['SBAGuaranteedApproval'] / df['GrossApproval']).fillna(0)
         return model, df, target
     except:
@@ -33,7 +32,7 @@ st.sidebar.header("📋 申請者情報入力")
 with st.sidebar:
     gross = st.number_input("融資額 ($)", 0, 10000000, 50000)
     sba = st.number_input("保証額 ($)", 0, 10000000, 30000)
-    rate = st.number_input("金利 (%)", 0.0, 30.0, 5.0)
+    rate = st.number_input("金利 (%)", 0.0, 35.0, 5.0) # 上限を少し拡張
     term = st.number_input("返済期間 (月)", 1, 360, 120)
     
     sector_list = sorted(train_df['NaicsSector'].unique()) if not train_df.empty else []
@@ -48,7 +47,6 @@ if submit:
         st.error("学習データが見つかりません。")
     else:
         try:
-            # 自身の保証率を計算
             current_sba_ratio = sba / gross if gross > 0 else 0
             
             # --- A. AI予測 ---
@@ -64,7 +62,7 @@ if submit:
             cat_idx = [i for i, col in enumerate(input_df.columns) if input_df[col].dtype == 'object']
             raw_proba = model.predict_proba(Pool(input_df, cat_features=cat_idx))[0][1]
 
-            # --- B. 類似事例検索 (保証率重視) ---
+            # --- B. 類似事例検索 ---
             search_pool = train_df[train_df['NaicsSector'] == sector_en].copy()
             if len(search_pool) < 100: search_pool = train_df.copy()
 
@@ -92,8 +90,15 @@ if submit:
             penalty = 1.0 + (risk_index * 7.0)
             final_expected_success = max(0.0, (1 - (risk_index * penalty)) * 100)
 
-            # --- D. メインメトリクス表示 ---
+            # --- D. メイン表示 ---
             st.subheader("🏁 総合審査報告書")
+            
+            # 特例警告アラート（実務的な要確認事項）
+            if rate >= 20.0:
+                st.error(f"🚨 **【高利得警告】** 金利が {rate}% と極めて高く設定されています。統計上は『安全』であっても、債務者の支払い能力を超えているリスク、または逆選択（他で借りられない事情）を重点的に調査してください。")
+            if gross >= 5000000:
+                st.warning(f"💰 **【巨額融資アラート】** 融資額が ${gross:,} に達しています。当行のポートフォリオに与える影響が大きいため、経営陣による二次審査を推奨します。")
+
             c1, c2, c3 = st.columns(3)
             with c1:
                 st.metric("実効リスク指数", f"{risk_index * 100:.2f} %")
@@ -107,9 +112,20 @@ if submit:
             with c3:
                 st.metric("完済期待値 (保守的評価)", f"{final_expected_success:.1f} %")
 
+            # --- E. 専門的アドバイス ---
+            st.write("### 📝 AI専門アドバイス")
+            if rate >= 20.0 and status == "安全":
+                st.info("この案件は『ハイリスク・ハイリターン』の典型です。AIは高い収益性がリスクをカバーすると見ていますが、担保の流動性を再確認してください。")
+            elif status == "安全":
+                st.success("低リスクかつ標準的な案件です。過去の類似事例でも高い完済率を誇っており、迅速な承認手続きが推奨されます。")
+            elif status == "注意":
+                st.warning("デフォルトの兆候が一部の類似事例で見られます。返済期間の短縮、または保証率の引き上げを条件とした承認を検討してください。")
+            else:
+                st.error("不履行実績が非常に高いゾーンです。現条件での融資は極めて危険であり、事業計画の抜本的な見直しが必要です。")
+
             st.divider()
 
-            # --- E. 影響度テーブル (主要5項目で100%に再配分) ---
+            # --- F. 影響度テーブル ---
             st.write("### ⚖️ 判断の主要構成要素 (%)")
             importances = model.get_feature_importance()
             imp_df = pd.DataFrame({'項目': expected_features, 'raw': importances})
@@ -126,10 +142,9 @@ if submit:
             display_imp = imp_df[imp_df['項目名'].isin(main_items)].groupby('項目名')['adj'].sum().reset_index()
             total_main_adj = display_imp['adj'].sum()
             display_imp['影響度(%)'] = (display_imp['adj'] / total_main_adj * 100).round(1)
-            
             st.table(display_imp.sort_values('影響度(%)', ascending=False).set_index('項目名')[['影響度(%)']])
 
-            # --- F. 比較テーブル (保証率を表示) ---
+            # --- G. 比較テーブル ---
             st.write("### 📂 申請データと類似事例の比較 (上位100件)")
             my_data = pd.DataFrame([{
                 "結果": "📢 今回の申請", "GrossApproval": gross, 
@@ -142,8 +157,11 @@ if submit:
             display_cols = ['結果', 'GrossApproval', '保証率', 'InitialInterestRate', 'TermInMonths', 'CollateralInd']
             comparison_df = pd.concat([my_data, similar_cases[display_cols]], ignore_index=True)
             
-            # パーセント表記に変換
+            # フォーマット調整
             comparison_df['保証率'] = (comparison_df['保証率'] * 100).map('{:.1f}%'.format)
+            comparison_df['InitialInterestRate'] = comparison_df['InitialInterestRate'].map('{:.2f}'.format)
+            comparison_df['GrossApproval'] = comparison_df['GrossApproval'].map('{:,.0f}'.format)
+            
             comparison_df = comparison_df.rename(columns={'GrossApproval': '融資額($)', 'InitialInterestRate': '金利(%)', 'TermInMonths': '期間(月)', 'CollateralInd': '担保'})
 
             def highlight_rows(row):
