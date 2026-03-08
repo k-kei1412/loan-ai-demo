@@ -51,9 +51,6 @@ if submit:
             # 自身の保証率を計算
             current_sba_ratio = sba / gross if gross > 0 else 0
             
-            # 0. パラメータ固定表示
-            st.info(f"📍 **審査中:** 融資額 ${gross:,} / 保証率 {current_sba_ratio*100:.1f}% / 金利 {rate}% / 期間 {term}ヶ月 / セクター: {sector_en}")
-
             # --- A. AI予測 ---
             input_data = {
                 "GrossApproval": float(gross), "SBAGuaranteedApproval": float(sba),
