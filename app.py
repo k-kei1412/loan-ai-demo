@@ -55,12 +55,15 @@ RAW_MAPPING = {
 
 def get_japanese_sector(en_text):
     """
-    表記揺れや長い英語名をキーワード判定で日本語にする最強版
+    判定の優先順位を調整した最強版。
+    Other services が Public administration に横取りされるのを防ぎます。
     """
-    # 判定用に小文字化
     text = str(en_text).lower()
     
-    # 1. 特徴的な単語が含まれているか順番にチェック
+    # 1. まず「Other」を最優先でチェック（長い名前に Public が含まれるため）
+    if "other" in text: return "その他サービス業"
+    
+    # 2. その他のキーワードチェック
     if "accommodation" in text: return "宿泊・飲食サービス業"
     if "administrative" in text: return "運営支援・廃棄物処理"
     if "agriculture" in text: return "農業・林業・漁業"
@@ -81,12 +84,7 @@ def get_japanese_sector(en_text):
     if "utilities" in text: return "公益事業（電気・ガス・水道）"
     if "wholesale" in text: return "卸売業"
     
-    # 2. 「Other」が含まれる場合（Other_services_except_public_administration等）
-    if "other" in text: return "その他サービス業"
-    
-    # 3. どれにも当てはまらない場合は元の文字を返す
     return en_text
-
 # --- サイドバー入力 ---
 st.sidebar.header("📋 申請者情報入力")
 with st.sidebar:
