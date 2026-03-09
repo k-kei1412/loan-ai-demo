@@ -151,13 +151,20 @@ if submit:
                 else:
                     for a in advice: st.write(a)
 
-            # --- F. 構成要素と比較 ---
+            # --- F. 構成要素と比較 (kumagai式重み付けを再適用) ---
             st.write("### ⚖️ 判断に影響した主要要素")
             importances = model.get_feature_importance()
             imp_df = pd.DataFrame({'項目': expected_features, 'raw': importances})
-            name_map = {"TermInMonths": "返済期間", "GrossApproval": "融資額", "InitialInterestRate": "金利", "NaicsSector": "業界", "SBAGuaranteedApproval": "保証率"}
+            name_map = {
+                "TermInMonths": "返済期間", 
+                "GrossApproval": "融資額", 
+                "InitialInterestRate": "金利", 
+                "NaicsSector": "業界", 
+                "SBAGuaranteedApproval": "保証率"
+            }
             imp_df['項目名'] = imp_df['項目'].map(lambda x: name_map.get(x, "その他"))
-
+            
+            # --- ここで以前の比率調整を復活 ---
             imp_df['adj'] = imp_df['raw']
             imp_df.loc[imp_df['項目'] == 'TermInMonths', 'adj'] *= 0.23
             imp_df.loc[imp_df['項目'] == 'GrossApproval', 'adj'] *= 1.7
@@ -166,10 +173,12 @@ if submit:
             imp_df.loc[imp_df['項目'] == 'InitialInterestRate', 'adj'] *= 0.9
             
             main_items = ["返済期間", "融資額", "金利", "業界", "保証率"]
+            display_imp = imp_df[imp_df['項目名'].isin(main_items)].groupby('項目名')['adj'].sum().reset_index()
             
-            # 影響度のスケーリング（表示用）
-            display_imp = imp_df[imp_df['項目名'] != "その他"].groupby('項目名')['raw'].sum().reset_index()
-            display_imp['影響度(%)'] = (display_imp['raw'] / display_imp['raw'].sum() * 100).round(1)
+            # 全体を100%に正規化して表示
+            total_main_adj = display_imp['adj'].sum()
+            display_imp['影響度(%)'] = (display_imp['adj'] / total_main_adj * 100).round(1)
+            
             st.table(display_imp.sort_values('影響度(%)', ascending=False).set_index('項目名')[['影響度(%)']])
 
             st.divider()
