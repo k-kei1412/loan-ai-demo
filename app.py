@@ -84,12 +84,26 @@ if submit:
             risk_pct = similar_cases['LoanStatus'].mean() * 100
             def_count = int(similar_cases['LoanStatus'].sum())
 
-            # --- C. リスク指数計算 ---
+            # --- C. リスク指数計算 (3段階ハイブリッド・ロジック) ---
             strict_proba = np.clip(raw_proba, 0.03, 0.97) 
-            risk_index = (strict_proba * 0.2) + (risk_pct / 100 * 0.8)
-            penalty = 1.0 + (risk_index * 7.0)
-            final_expected_success = max(0.0, (1 - (risk_index * penalty)) * 100)
 
+            if gross >= 1000000:
+                # 【大口】AI予測を最重視 (60%) + ペナルティ大
+                risk_index = (strict_proba * 0.6) + (risk_pct / 100 * 0.4)
+                penalty_factor = 12.0 
+            elif gross >= 500000:
+                # 【中口】AI予測と実績をバランス良く (40%) + ペナルティ中
+                risk_index = (strict_proba * 0.4) + (risk_pct / 100 * 0.6)
+                penalty_factor = 8.0
+            else:
+                # 【小口】実績統計を重視 (20%) + ペナルティ低
+                risk_index = (strict_proba * 0.2) + (risk_pct / 100 * 0.8)
+                penalty_factor = 5.0
+
+            # 最終的な完済期待値の算出
+            penalty = 1.0 + (risk_index * penalty_factor)
+            final_expected_success = max(0.0, (1 - (risk_index * penalty)) * 100)
+            
             # --- D. メイン表示 ---
             st.subheader("🏁 総合審査報告書")
             
