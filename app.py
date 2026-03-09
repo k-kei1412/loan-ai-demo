@@ -138,7 +138,7 @@ if submit:
                 status = "注意" # または複合リスクにより危険
                 st.error("💀 **【複合リスク】** 中規模以上の融資かつ高金利です。デフォルト時の損失インパクトが大きいため、慎重な判断が必要です。")
             else:
-                status = "安全" if final_expected_success > 85 else "注意" if final_expected_success > 60 else "危険"
+                status = "安全" if final_expected_success > 92 else "注意" if final_expected_success > 75 else "危険"
 
             if gross >= 500000 and gross < 1000000:
                 st.info(f"📂 **【中規模案件】** 50万ドル超。10万ドル単位でリスク加重が適用されています（現在の加重: {gross_risk*100:.0f}%）。")
