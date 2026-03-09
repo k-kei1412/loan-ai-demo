@@ -43,6 +43,7 @@ RAW_MAPPING = {
     "managementofcompaniesenterprises": "企業管理・持株会社",
     "manufacturing": "製造業",
     "miningquarryingoilgasextraction": "採鉱・石油ガス採掘",
+    "otherservicesexceptpublicadministration": "その他サービス業",
     "professionalscientifictechnicalservices": "専門・科学・技術サービス",
     "publicadministration": "公務",
     "realestaterentalleasing": "不動産・賃貸業",
@@ -50,7 +51,6 @@ RAW_MAPPING = {
     "transportationwarehousing": "運輸業・倉庫業",
     "utilities": "公益事業（電気・ガス・水道）",
     "wholesaletrade": "卸売業"
-    "otherservicesexceptpublicadministration": "その他サービス業",
 }
 
 def get_japanese_sector(en_text):
