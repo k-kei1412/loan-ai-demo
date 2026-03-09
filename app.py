@@ -84,26 +84,33 @@ if submit:
             risk_pct = similar_cases['LoanStatus'].mean() * 100
             def_count = int(similar_cases['LoanStatus'].sum())
 
-            # --- C. リスク指数計算 (3段階ハイブリッド・ロジック) ---
-            strict_proba = np.clip(raw_proba, 0.03, 0.97) 
+           # --- C. リスク指数計算 (高金利緩和・3段階ハイブリッド) ---
+strict_proba = np.clip(raw_proba, 0.03, 0.97) 
 
-            if gross >= 1000000:
-                # 【大口】AI予測を最重視 (60%) + ペナルティ大
-                risk_index = (strict_proba * 0.6) + (risk_pct / 100 * 0.4)
-                penalty_factor = 9.0
-            elif gross >= 500000:
-                # 【中口】AI予測と実績をバランス良く (40%) + ペナルティ中
-                risk_index = (strict_proba * 0.4) + (risk_pct / 100 * 0.6)
-                penalty_factor = 8.0
-            else:
-                # 【小口】実績統計を重視 (20%) + ペナルティ低
-                risk_index = (strict_proba * 0.2) + (risk_pct / 100 * 0.8)
-                penalty_factor = 5.0
+# 1. 金利による緩和係数 (rateが高いほど、penalty_factorを相対的に下げる)
+# 金利が20%を超えると、最大で2.0程度の係数引き下げを行う
+rate_relief = min(2.0, max(0.0, (rate - 10.0) / 10.0)) 
 
-            # 最終的な完済期待値の算出
-            penalty = 1.0 + (risk_index * penalty_factor)
-            final_expected_success = max(0.0, (1 - (risk_index * penalty)) * 100)
-            
+if gross >= 1000000:
+    # 【大口】AI予測を最重視 (60%)
+    risk_index = (strict_proba * 0.6) + (risk_pct / 100 * 0.4)
+    # 高金利時は 9.0 から最大 7.0 まで緩和
+    penalty_factor = max(7.0, 9.0 - rate_relief) 
+elif gross >= 500000:
+    # 【中口】AI予測と実績をバランス良く (40%)
+    risk_index = (strict_proba * 0.4) + (risk_pct / 100 * 0.6)
+    # 高金利時は 8.0 から最大 6.5 まで緩和
+    penalty_factor = max(6.5, 8.0 - rate_relief)
+else:
+    # 【小口】実績統計を重視 (20%)
+    risk_index = (strict_proba * 0.2) + (risk_pct / 100 * 0.8)
+    # 小口はもともと低いため 5.0 を維持
+    penalty_factor = 5.0
+
+# 最終的な完済期待値の算出
+penalty = 1.0 + (risk_index * penalty_factor)
+# 期待値の最低ラインを 1.0% に設定し、0% 回避
+final_expected_success = max(1.0, (1 - (risk_index * penalty)) * 100)
             # --- D. メイン表示 ---
             st.subheader("🏁 総合審査報告書")
             
