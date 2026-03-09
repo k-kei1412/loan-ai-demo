@@ -30,10 +30,10 @@ expected_features = model.feature_names_
 # --- サイドバー入力 ---
 st.sidebar.header("📋 申請者情報入力")
 with st.sidebar:
-    gross = st.number_input("融資額 ($)", 0, 10000000, 50000)
-    sba = st.number_input("保証額 ($)", 0, 10000000, 30000)
-    rate = st.number_input("金利 (%)", 0.0, 35.0, 5.0)
-    term = st.number_input("返済期間 (月)", 1, 360, 120)
+    gross = st.number_input("融資額 ($)", 0, 10000000, 700000)
+    sba = st.number_input("保証額 ($)", 0, 10000000, 400000)
+    rate = st.number_input("金利 (%)", 0.0, 35.0, 15.0)
+    term = st.number_input("返済期間 (月)", 1, 360, 95)
     
     sector_list = sorted(train_df['NaicsSector'].unique()) if not train_df.empty else []
     sector_en = st.selectbox("産業セクター", options=sector_list)
@@ -84,56 +84,47 @@ if submit:
             risk_pct = similar_cases['LoanStatus'].mean() * 100
             def_count = int(similar_cases['LoanStatus'].sum())
 
-            # --- C. リスク指数計算 (動的適正化ロジック) ---
-            strict_proba = np.clip(raw_proba, 0.02, 0.98) 
+            # --- C. 数値正常化ロジック (改訂版) ---
+            strict_proba = np.clip(raw_proba, 0.01, 0.99)
             
-            # 1. 融資額に応じた動的な適正期間の設定
-            # 額が大きいほど、長期間の返済を「適正」と認める
-            dynamic_ceil = 84 + (min(gross, 2000000) / 2000000) * 36 # $2Mで最大120ヶ月まで許容
-            dynamic_floor = 36 + (min(gross, 1000000) / 1000000) * 24 # $1Mで60ヶ月が下限
+            # 1. 動的な適正期間の算出 (融資額に連動)
+            dynamic_ceil = 84 + (min(gross, 2000000) / 2000000) * 36
             
-            if term < dynamic_floor:
-                term_penalty = 1.0 + ((dynamic_floor - term) / dynamic_floor) * 0.4
-            elif term > dynamic_ceil:
-                term_penalty = 1.0 + ((term - dynamic_ceil) / 120.0) * 0.6
-            else:
-                term_penalty = 1.0
-
-            # 2. 金利緩和と逆選択リスクの判定
-            # 通常は高金利＝緩和だが、大口($500k~)で20%超なら逆にペナルティ
-            base_relief = min(1.0, max(0.0, (rate - 8.0) / 12.0))
-            if gross >= 500000 and rate >= 20.0:
-                rate_factor = 1.2 # 逆選択ペナルティ
-            else:
-                rate_factor = 1.0 - (base_relief * 0.2) # 最大20%の緩和
-
-            # 3. 総合リスクインデックスの統合
+            # 2. リスク因子の計算 (掛け算の連鎖を廃止し、最大値を抑制)
+            term_risk = max(0.0, (term - dynamic_ceil) / 120.0) * 0.5 if term > dynamic_ceil else 0.0
+            # 大口かつ高金利の場合のみペナルティを加算
+            selection_risk = 0.2 if (gross >= 500000 and rate >= 20.0) else 0.0
+            
+            # 3. リスク指数の統合 (配分をマイルドに調整)
             if gross >= 1000000:
-                risk_index = (strict_proba * 0.6) + (risk_pct / 100 * 0.4)
-                penalty_factor = 10.0 * term_penalty * rate_factor
+                combined_risk = (strict_proba * 0.6) + (risk_pct / 100 * 0.4)
             else:
-                risk_index = (strict_proba * 0.3) + (risk_pct / 100 * 0.7)
-                penalty_factor = 7.5 * term_penalty * rate_factor
+                # 中・小口はAIの個別判断と統計を半々に
+                combined_risk = (strict_proba * 0.5) + (risk_pct / 100 * 0.5)
 
-            # 完済期待値の算出 (S字カーブによる滑らかな減衰)
-            # 強制引き算を廃止し、すべてを論理構成に統合
-            final_risk = risk_index * penalty_factor
-            final_expected_success = max(1.0, (1.0 / (1.0 + np.exp(5.0 * (final_risk - 0.5)))) * 100)
+            # 最終的な期待値計算 (急激な減衰を抑えた解析的モデル)
+            # base_success は 0~1 のスコア。これにリスク因子を引き算していく
+            base_success = 1.0 - combined_risk
+            
+            # 期待値の算出：線形減衰と最小保証（ボトム）の組み合わせ
+            # リスクが 40% なら期待値は 60% 付近、そこから期間や金利のペナルティを引く
+            final_expected_success = (base_success - term_risk - selection_risk) * 100
+            # 下限値を 5.0% に設定し、完全にゼロにはならないように調整
+            final_expected_success = max(5.0, min(98.0, final_expected_success))
 
             # --- D. メイン表示 ---
             st.subheader("🏁 総合審査報告書")
             
-            # --- 実務者への重点アラート ---
             st.write("### 🔍 審査のポイント")
             if term > dynamic_ceil:
-                st.info(f"⏳ **【期間超過】** 本案件の規模に対して期間が長すぎます（適正上限: {int(dynamic_ceil)}ヶ月）。将来のリスクがAI予測以上に高い可能性があります。")
-            if gross >= 500000 and rate >= 20.0:
-                st.error("🚨 **【逆選択の疑い】** 大口案件かつ極端な高金利です。他行での否決理由など、定性面での徹底調査を推奨します。")
+                st.info(f"⏳ **【期間の検討】** 本案件規模での理想的な期間（{int(dynamic_ceil)}ヶ月）を超過しています。")
+            if final_expected_success > 60 and (gross >= 500000 and rate >= 12.0):
+                st.write("✅ 中規模案件として、金利とリスクのバランスは実務的な範囲内です。")
 
             c1, c2, c3 = st.columns(3)
             with c1:
-                st.metric("実効リスク指数", f"{risk_index * 100:.2f} %")
-                status = "安全" if final_expected_success > 75 else "注意" if final_expected_success > 45 else "危険"
+                st.metric("実効リスク指数", f"{combined_risk * 100:.2f} %")
+                status = "安全" if final_expected_success > 70 else "注意" if final_expected_success > 40 else "危険"
                 if status == "安全": st.success("総合判定: ✅ 安全")
                 elif status == "注意": st.warning("総合判定: ⚠️ 注意")
                 else: st.error("総合判定: 🚨 危険")
@@ -141,48 +132,38 @@ if submit:
                 st.metric(f"実績事故率 (類似100件)", f"{risk_pct:.1f} %")
                 st.markdown(f"🔍 うち不履行事例: **{def_count}件**")
             with c3:
-                st.metric("完済期待値 (論理評価)", f"{final_expected_success:.1f} %")
-                if final_expected_success <= 45.0:
-                    st.caption(":red[⚠️ 構造的リスクが高い案件です]")
+                st.metric("完済期待値 (実務評価)", f"{final_expected_success:.1f} %")
+                if final_expected_success <= 40.0:
+                    st.caption(":red[⚠️ 慎重な稟議が必要です]")
 
-            # --- E. 改善アドバイス (動的ロジック) ---
+            # --- E. 改善アドバイス ---
             st.write("### 💡 審査改善へのアクション案")
             with st.expander("アドバイスの詳細を確認する", expanded=True):
                 advice = []
-                if final_expected_success < 70:
+                if final_expected_success < 75:
                     if term > dynamic_ceil:
-                        advice.append(f"✅ **期間の短縮**: 返済期間を **{int(dynamic_ceil)}ヶ月以下** に設定し直すことで、期待値の大幅な向上が見込めます。")
-                    if gross >= 500000 and rate >= 20.0:
-                        advice.append("✅ **金利・スキームの再考**: 金利設定がリスクを増幅させています。担保強化による金利の引き下げ、または分割実行を検討してください。")
-                    if current_sba_ratio < 0.7:
-                        advice.append("✅ **保証枠の拡大**: 保証率を75%以上に引き上げることで、銀行の実効リスクを劇的に抑えられます。")
+                        advice.append(f"✅ **期間の最適化**: 期間を {int(dynamic_ceil)}ヶ月に近づけると、さらにスコアが改善します。")
+                    if current_sba_ratio < 0.6:
+                        advice.append("✅ **保証利用の強化**: 保証比率を高めることで、銀行側の実質リスクを低減可能です。")
                 
                 if not advice:
-                    st.write("✨ 現在の構成は、金額・金利・期間のバランスが論理的に整っています。")
+                    st.write("✨ 構成は論理的に安定しています。")
                 else:
                     for a in advice: st.write(a)
 
-            # --- F. 構成要素とデータ比較 (日本語化・最適化) ---
+            # --- F. 構成要素と比較 ---
             st.write("### ⚖️ 判断に影響した主要要素")
             importances = model.get_feature_importance()
             imp_df = pd.DataFrame({'項目': expected_features, 'raw': importances})
             name_map = {"TermInMonths": "返済期間", "GrossApproval": "融資額", "InitialInterestRate": "金利", "NaicsSector": "業界", "SBAGuaranteedApproval": "保証率"}
             imp_df['項目名'] = imp_df['項目'].map(lambda x: name_map.get(x, "その他"))
-            imp_df['adj'] = imp_df['raw']
-            imp_df.loc[imp_df['項目'] == 'TermInMonths', 'adj'] *= 0.23
-            imp_df.loc[imp_df['項目'] == 'GrossApproval', 'adj'] *= 1.7
-            imp_df.loc[imp_df['項目'] == 'SBAGuaranteedApproval', 'adj'] *= 0.8
-            imp_df.loc[imp_df['項目'] == 'NaicsSector', 'adj'] *= 0.5
-            imp_df.loc[imp_df['項目'] == 'InitialInterestRate', 'adj'] *= 0.9
             
-            main_items = ["返済期間", "融資額", "金利", "業界", "保証率"]
-            display_imp = imp_df[imp_df['項目名'].isin(main_items)].groupby('項目名')['adj'].sum().reset_index()
-            total_main_adj = display_imp['adj'].sum()
-            display_imp['影響度(%)'] = (display_imp['adj'] / total_main_adj * 100).round(1)
+            # 影響度のスケーリング（表示用）
+            display_imp = imp_df[imp_df['項目名'] != "その他"].groupby('項目名')['raw'].sum().reset_index()
+            display_imp['影響度(%)'] = (display_imp['raw'] / display_imp['raw'].sum() * 100).round(1)
             st.table(display_imp.sort_values('影響度(%)', ascending=False).set_index('項目名')[['影響度(%)']])
 
             st.divider()
-
             st.write("### 📂 類似事例との比較 (上位100件)")
             my_data = pd.DataFrame([{"結果": "📢 今回の申請", "融資額": gross, "保証率": f"{current_sba_ratio*100:.1f}%", "金利": rate, "期間": term}])
             similar_cases['結果'] = similar_cases['LoanStatus'].apply(lambda x: "❌ 不履行" if x == 1 else "✅ 完済")
