@@ -85,7 +85,7 @@ if submit:
             def_count = int(similar_cases['LoanStatus'].sum())
 
            # --- C. リスク指数計算 (高金利緩和・3段階ハイブリッド) ---
-           strict_proba = np.clip(raw_proba, 0.03, 0.97) 
+          strict_proba = np.clip(raw_proba, 0.03, 0.97) 
 
           # 1. 金利による緩和係数 (rateが高いほど、penalty_factorを相対的に下げる)
           # 金利が20%を超えると、最大で2.0程度の係数引き下げを行う
