@@ -1,4 +1,9 @@
 streamlit
 pandas
+numpy
+matplotlib
+shap
+streamlit-shap
+scipy
 catboost
 scikit-learn
