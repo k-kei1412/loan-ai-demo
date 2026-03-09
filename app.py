@@ -137,8 +137,14 @@ if submit:
                 st.metric(f"実績事故率 (類似100件)", f"{risk_pct:.1f} %")
                 st.markdown(f"🔍 うち不履行事例: **{def_count}件**")
             with c3:
-                # 【修正】ぼかし表示対応版のdisplay_successを表示
-                st.metric("完済期待値 (保守的評価)", display_success)
+                if final_expected_success <= 30.0:
+                    # 数値部分はシンプルに「30%未満」
+                    st.metric("完済期待値 (保守的評価)", "30% 未満")
+                    # そのすぐ下に赤文字で注釈を表示
+                    st.caption(":red[⚠️ 要・個別審査案件]")
+                    st.info("※定性面を含めた慎重な判断が必要です。")
+                else:
+                    st.metric("完済期待値 (保守的評価)", f"{final_expected_success:.1f} %")
 
             # --- E. 影響度テーブル (割合固定) ---
             st.write("### ⚖️ 判断の主要構成要素 (%)")
