@@ -84,11 +84,10 @@ if submit:
             risk_pct = similar_cases['LoanStatus'].mean() * 100
             def_count = int(similar_cases['LoanStatus'].sum())
 
-           # --- C. リスク指数計算 (高金利緩和・3段階ハイブリッド) ---
-            # ここは try: の中にあるため、スペース12個分（またはタブ3つ分）のインデントが必要です
+            # --- C. リスク指数計算 (高金利緩和・3段階ハイブリッド) ---
             strict_proba = np.clip(raw_proba, 0.03, 0.97) 
 
-            # 1. 金利による緩和係数
+            # 1. 金利による緩和係数 (金利が高いほどペナルティを打ち消す)
             rate_relief = min(2.0, max(0.0, (rate - 10.0) / 10.0)) 
 
             if gross >= 1000000:
@@ -106,11 +105,19 @@ if submit:
 
             # 最終的な完済期待値の算出
             penalty = 1.0 + (risk_index * penalty_factor)
-            final_expected_success = max(1.0, (1 - (risk_index * penalty)) * 100)
+            raw_success = (1 - (risk_index * penalty)) * 100
+            final_expected_success = max(1.0, raw_success)
+
+            # --- 表示用ラベルの生成 (30%未満ぼかし対応) ---
+            if final_expected_success <= 30.0:
+                display_success = "30.0% 未満 (要・個別精査)"
+            else:
+                display_success = f"{final_expected_success:.1f} %"
+
             # --- D. メイン表示 ---
             st.subheader("🏁 総合審査報告書")
             
-            # --- 【新】重点確認アラート (日本語詳細版) ---
+            # --- 重点確認アラート (日本語詳細版) ---
             st.write("### 🔍 実務者への重点確認事項")
             if gross >= 1000000:
                 st.warning("💰 **【要確認：高額案件】** 融資申請額が $1,000,000 を超えており、学習データ内の希少事例に該当します。キャッシュフローの継続性と、万が一の際の回収シナリオを役員級で再精査してください。")
@@ -130,7 +137,8 @@ if submit:
                 st.metric(f"実績事故率 (類似100件)", f"{risk_pct:.1f} %")
                 st.markdown(f"🔍 うち不履行事例: **{def_count}件**")
             with c3:
-                st.metric("完済期待値 (保守的評価)", f"{final_expected_success:.1f} %")
+                # 【修正】ぼかし表示対応版のdisplay_successを表示
+                st.metric("完済期待値 (保守的評価)", display_success)
 
             # --- E. 影響度テーブル (割合固定) ---
             st.write("### ⚖️ 判断の主要構成要素 (%)")
