@@ -84,39 +84,48 @@ if submit:
             risk_pct = similar_cases['LoanStatus'].mean() * 100
             def_count = int(similar_cases['LoanStatus'].sum())
 
-            # --- C. 数値正常化ロジック (論理安定性・保証補正・アラート統合) ---
+            # --- C. 数値正常化ロジック (高感度・相乗的リスクモデル) ---
             strict_proba = np.clip(raw_proba, 0.01, 0.99)
             dynamic_ceil = 84 + (min(gross, 2000000) / 2000000) * 36
             
-            term_gap = max(0.0, (term - dynamic_ceil) / 120.0) if term > dynamic_ceil else 0.0
-            high_rate_risk = 0.15 if (gross >= 500000 and rate >= 20.0) else 0.0
+            # 1. 期間乖離リスク (高感度設定)
+            term_gap = max(0.0, (term - dynamic_ceil) / 100.0) * 0.7 if term > dynamic_ceil else 0.0
+
+            # 2. 高額 or 高金利の相乗リスク
+            # 片側だけでも 0.25 のベース上昇を確保。50万ドル / 15% を境界に設定。
+            base_high_gross = max(0, (gross - 500000) / 800000) 
+            base_high_rate = max(0, (rate - 15.0) / 15.0)       
             
-            # AI予測(40%)と統計実績(60%)をブレンド
+            gross_risk = 0.25 * base_high_gross if base_high_gross > 0 else 0
+            rate_risk = 0.25 * base_high_rate if base_high_rate > 0 else 0
+            
+            # 相乗効果ブースト (両方高いと爆発)
+            synergy_boost = (base_high_gross * base_high_rate) * 0.8
+            total_synergy_risk = gross_risk + rate_risk + synergy_boost
+
+            # 3. 基礎指数の統合 (AI予測 40% : 統計実績 60%)
             base_risk_idx = (strict_proba * 0.4) + (risk_pct / 100 * 0.6)
 
-            # 🌟 論理的安定性によるリスク圧縮
+            # 🌟 論理的安定性ボーナス
             stability_bonus = 1.0
             if term <= dynamic_ceil: stability_bonus *= 0.8
             if rate <= 15.0: stability_bonus *= 0.9
-
-            # 🛡️ 【重要】保証率による逆選択バイアスの相殺（オフセット）
-            # AIは「保証率が高い=危険」と判断しがちだが、実務的には「保証=保全」
-            # アドバイスとの整合性を取るため、高保証率には強力な引き下げを適用
+            
+            # 🛡️ 保証率による逆選択バイアスの相殺（実務的保全評価）
             sba_offset = 1.0
             if current_sba_ratio >= 0.75:
-                sba_offset = 0.65  # 75%以上の保証なら、ベースリスクを35%強制カット
+                sba_offset = 0.65 # 35%カット
             elif current_sba_ratio >= 0.50:
-                sba_offset = 0.85  # 50%以上の保証なら、ベースリスクを15%カット
+                sba_offset = 0.85 # 15%カット
             
             # 最終リスク指数の算出
-            combined_risk = (base_risk_idx * stability_bonus * sba_offset) + term_gap + high_rate_risk
+            combined_risk = (base_risk_idx * stability_bonus * sba_offset) + term_gap + total_synergy_risk
             combined_risk = np.clip(combined_risk, 0.02, 0.98)
 
-            # 完済期待値の算出
+            # 4. 期待値算出 (リスクが高いほど減衰をシビアに)
             final_expected_success = (1.0 - combined_risk) * 100
-            # 低リスク帯（安定案件）への解析的ボーナス
-            if combined_risk < 0.25:
-                final_expected_success += (0.25 - combined_risk) * 40 
+            if combined_risk < 0.20:
+                final_expected_success += (0.20 - combined_risk) * 30 # 超低リスクボーナス
             
             final_expected_success = max(5.0, min(98.5, final_expected_success))
 
@@ -125,24 +134,24 @@ if submit:
             
             # 🚨 アラートセクション
             st.write("### 🔍 実務者への重点確認事項")
-            if gross >= 1000000:
-                st.warning(f"💰 **【要確認：高額案件】** 融資額 $1M 超。キャッシュフローの継続性を役員級で再精査してください。")
-            elif gross >= 500000:
-                st.info(f"📂 **【中規模案件】** 融資額 $500k 超。事業計画の妥当性を重点的に確認してください。")
-
-            if rate >= 20.0:
+            if gross >= 500000 and rate >= 20.0:
+                st.error("💀 **【最優先警戒：複合リスク】** 高額かつ高金利です。デフォルト時の損失インパクトと不履行確率が同時に跳ね上がっています。")
+            elif gross >= 1000000:
+                st.warning(f"💰 **【要確認：高額案件】** 融資額 $1M 超。キャッシュフローを役員級で再精査してください。")
+            elif rate >= 20.0:
                 st.error(f"🚨 **【要確認：高利得リスク】** 金利 20% 超。逆選択の可能性を重点調査してください。")
 
             if term > dynamic_ceil:
-                st.warning(f"⏳ **【期間超過】** 本規模の適正上限（{int(dynamic_ceil)}ヶ月）を超過。回収シナリオの再考を推奨。")
+                st.warning(f"⏳ **【期間超過】** 適正上限（{int(dynamic_ceil)}ヶ月）を超過。回収シナリオの再考を推奨。")
 
             if term <= dynamic_ceil and rate <= 18.0 and current_sba_ratio >= 0.5:
-                st.success("✨ **【論理的安定】** 構成要素が論理的に安定しており、リスクが抑制されています。")
+                st.success("✨ **【論理的安定】** 条件が論理的に安定しており、リスクが抑制されています。")
 
             c1, c2, c3 = st.columns(3)
             with c1:
                 st.metric("実効リスク指数", f"{combined_risk * 100:.2f} %")
-                status = "安全" if final_expected_success > 90 else "注意" if final_expected_success > 70 else "危険"
+                # 判定基準を実務的に調整
+                status = "安全" if final_expected_success > 85 else "注意" if final_expected_success > 60 else "危険"
                 if status == "安全": st.success("総合判定: ✅ 安全")
                 elif status == "注意": st.warning("総合判定: ⚠️ 注意")
                 else: st.error("総合判定: 🚨 危険")
@@ -157,16 +166,16 @@ if submit:
             with st.expander("アドバイスの詳細を確認する", expanded=True):
                 advice = []
                 if term > dynamic_ceil:
-                    advice.append(f"✅ **期間の最適化**: {int(dynamic_ceil)}ヶ月以下への短縮で、回収確実性が大幅に向上します。")
+                    advice.append(f"✅ **期間の最適化**: {int(dynamic_ceil)}ヶ月以下への短縮で、回収確実性が向上します。")
                 if current_sba_ratio < 0.75:
-                    advice.append("✅ **保証枠の拡大**: 保証率を 75% 以上に引き上げることで、銀行の実効リスクを劇的に抑えられます。")
+                    advice.append("✅ **保証枠の拡大**: 保証率を 75% 以上に引き上げ、銀行の実効リスクを抑えてください。")
                 if not advice:
                     st.write("✨ 現在の条件は論理的に安定しています。")
                 else:
                     for a in advice: st.write(a)
 
             # --- F. 判断に影響した主要要素 ---
-            st.write("### ⚖️ 判断に影響した主要要素")
+            st.write("### ⚖️ 判断に影響した主要要素 (kumagai式重み付け)")
             importances = model.get_feature_importance()
             imp_df = pd.DataFrame({'項目': expected_features, 'raw': importances})
             name_map = {"TermInMonths": "返済期間", "GrossApproval": "融資額", "InitialInterestRate": "金利", "NaicsSector": "業界", "SBAGuaranteedApproval": "保証率"}
