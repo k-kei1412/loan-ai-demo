@@ -18,8 +18,8 @@ def load_resources():
     try:
         target = "train.csv" if os.path.exists("train.csv") else "train (4).csv"
         df = pd.read_csv(target)
-        # 確実に文字列型に変換して比較できるようにする
-        df['NaicsSector'] = df['NaicsSector'].astype(str).str.replace('.0', '', regex=False)
+        # 数値・文字列の混在を防ぐため文字列に統一
+        df['NaicsSector'] = df['NaicsSector'].astype(str)
         df['SBA_Ratio'] = (df['SBAGuaranteedApproval'] / df['GrossApproval']).fillna(0)
         return model, df, target
     except:
@@ -28,32 +28,29 @@ def load_resources():
 model, train_df, file_name = load_resources()
 expected_features = model.feature_names_
 
-# 3. 産業セクターの日本語マッピング（定義漏れがないように整理）
-SECTOR_MAP = {
-    "11": "11: 農業・林業・漁業・狩猟業",
-    "21": "21: 採鉱業・採石業・石油・ガス採掘業",
-    "22": "22: 公益事業（電気・ガス・水道）",
-    "23": "23: 建設業",
-    "31": "31: 製造業（食品・繊維等）",
-    "32": "32: 製造業（紙・薬品等）",
-    "33": "33: 製造業（金属・機械等）",
-    "42": "42: 卸売業",
-    "44": "44: 小売業（自動車・家具等）",
-    "45": "45: 小売業（書籍・EC等）",
-    "48": "48: 運輸業・倉庫業",
-    "49": "49: 運輸業（宅配等）",
-    "51": "51: 情報通信業",
-    "52": "52: 金融業・保険業",
-    "53": "53: 不動産業・賃貸業",
-    "54": "54: 専門・科学・技術サービス",
-    "55": "55: 企業管理（持株会社等）",
-    "56": "56: 運営支援・廃棄物処理",
-    "61": "61: 教育サービス",
-    "62": "62: 医療・福祉",
-    "71": "71: 芸術・娯楽・レクリエーション",
-    "72": "72: 宿泊業・飲食サービス",
-    "81": "81: その他サービス（修理・家事等）",
-    "92": "92: 公務"
+# 3. 英語セクター名から日本語名へのマッピング
+# スクリーンショットに基づき、データセット内の英語名を網羅
+JAPANESE_SECTOR_NAMES = {
+    "Accommodation_food_services": "宿泊・飲食サービス業",
+    "Administrative_support_waste_management_remediation_services": "運営支援・廃棄物処理",
+    "Agriculture_forestry_fishing_hunting": "農業・林業・漁業・狩猟業",
+    "Arts_entertainment_recreation": "芸術・娯楽・レクリエーション",
+    "Construction": "建設業",
+    "Educational_services": "教育サービス業",
+    "Finance_insurance": "金融業・保険業",
+    "Health_care_social_assistance": "医療・福祉",
+    "Information": "情報通信業",
+    "Management_of_companies_enterprises": "企業管理・持株会社",
+    "Manufacturing": "製造業",
+    "Mining_quarrying_oil_gas_extraction": "採鉱・石油ガス採掘",
+    "Other_services_except_public_administration": "その他サービス業",
+    "Professional_scientific_technical_services": "専門・科学・技術サービス",
+    "Public_administration": "公務",
+    "Real_estate_rental_leasing": "不動産・賃貸業",
+    "Retail_trade": "小売業",
+    "Transportation_warehousing": "運輸業・倉庫業",
+    "Utilities": "公益事業（電気・ガス・水道）",
+    "Wholesale_trade": "卸売業"
 }
 
 # --- サイドバー入力 ---
@@ -64,19 +61,19 @@ with st.sidebar:
     rate = st.number_input("金利 (%)", 0.0, 35.0, 15.0)
     term = st.number_input("返済期間 (月)", 1, 360, 95)
     
-    # 【重要】日本語の選択肢を作成
     if not train_df.empty:
-        # データにあるセクターコードを重複なく取得
-        unique_codes = sorted(train_df['NaicsSector'].unique())
-        # コードを辞書で日本語に変換。辞書にない場合はそのまま表示
-        sector_options = [SECTOR_MAP.get(code, f"{code}: 未分類") for code in unique_codes]
+        # データにある英語名一覧を取得
+        unique_en_sectors = sorted(train_df['NaicsSector'].unique())
+        # 日本語に変換したリストを作成。辞書にない場合は元の英語を表示
+        display_options = [JAPANESE_SECTOR_NAMES.get(s, s) for s in unique_en_sectors]
         
-        selected_sector_jp = st.selectbox("産業セクター", options=sector_options)
+        selected_jp = st.selectbox("産業セクター", options=display_options)
         
-        # モデル入力用に「コード部分」だけを抽出（例: "72: 宿泊..." -> "72"）
-        sector_en = selected_sector_jp.split(":")[0]
+        # 逆引き：日本語から元の英語名を取得してAIに渡す
+        reverse_map = {v: k for k, v in JAPANESE_SECTOR_NAMES.items()}
+        sector_en = reverse_map.get(selected_jp, selected_jp)
     else:
-        sector_en = "72"
+        sector_en = "Finance_insurance"
         st.selectbox("産業セクター", options=["データ未読み込み"])
 
     collateral = st.selectbox("担保の有無", ["あり (Y)", "なし (N)"])
@@ -84,7 +81,7 @@ with st.sidebar:
     
     submit = st.button("精密クロス審査を開始")
 
-# 4. 分析ロジック (以降は変更なし)
+# 4. 分析ロジック
 if submit:
     if train_df.empty:
         st.error("学習データが見つかりません。")
@@ -101,10 +98,7 @@ if submit:
                 "BusinessType": "CORPORATION", "BusinessAge": "Existing or more than 2 years old",
                 "RevolverStatus": 0.0, "JobsSupported": 5.0, "CollateralInd": collateral_val
             }
-            # 特徴量の順序をモデルに合わせる
             input_df = pd.DataFrame([input_data]).reindex(columns=expected_features)
-            
-            # カテゴリ変数のインデックス取得
             cat_idx = [i for i, col in enumerate(input_df.columns) if input_df[col].dtype == 'object']
             raw_proba = model.predict_proba(Pool(input_df, cat_features=cat_idx))[0][1]
 
@@ -130,7 +124,7 @@ if submit:
             risk_pct = similar_cases['LoanStatus'].mean() * 100
             def_count = int(similar_cases['LoanStatus'].sum())
 
-            # --- C. リスク正常化ロジック ---
+            # --- C. リスク統合ロジック ---
             strict_proba = np.clip(raw_proba, 0.01, 0.99)
             dynamic_ceil = 84 + (min(gross, 2000000) / 2000000) * 36
             term_gap = max(0.0, (term - dynamic_ceil) / 100.0) * 0.7 if term > dynamic_ceil else 0.0
@@ -166,20 +160,21 @@ if submit:
             final_expected_success = (1.0 - combined_risk) * 100
             final_expected_success = max(5.0, min(98.5, final_expected_success))
 
-            # --- D. 表示 ---
+            # --- D. 報告書表示 ---
             st.subheader("🏁 総合審査報告書")
             
+            # ステータス判定
             if gross >= 1000000:
                 status = "危険"
                 st.error("🚨 **【最重要精査案件】** $1M 超。役員承認必須。")
             elif gross >= 500000 and rate >= 20.0 and not sba_bonus_flag:
                 status = "注意"
-                st.error("💀 **【複合リスク】** 高額かつ高金利。")
+                st.error("💀 **【複合リスク】** 中規模かつ高金利。慎重な判断が必要です。")
             else:
                 status = "安全" if final_expected_success > 92 else "注意" if final_expected_success > 75 else "危険"
 
             if sba_bonus_flag:
-                st.success(f"🛡️ **【保全インセンティブ適用】** 保証率80%超によりリスクを50%軽減。")
+                st.success(f"🛡️ **【保全インセンティブ適用】** 保証率80%超によりリスクを50%軽減中。")
 
             c1, c2, c3 = st.columns(3)
             with c1:
@@ -190,18 +185,30 @@ if submit:
 
             with c2:
                 st.metric(f"実績事故率 (類似100件)", f"{risk_pct:.1f} %")
+                st.write(f"🔍 うち不履行事例: **{def_count}件**")
             with c3:
                 st.metric("完済期待値 (実務評価)", f"{final_expected_success:.1f} %")
 
-            # 類似事例比較テーブル
+            # アクション案
+            st.write("### 💡 審査改善へのアクション案")
+            with st.expander("アドバイスの詳細を確認する", expanded=True):
+                if current_sba_ratio < 0.75:
+                    st.write("✅ **保証枠の拡大**: 保証率を75%以上に引き上げると、銀行の保全が強化されます。")
+                if term > dynamic_ceil:
+                    st.write(f"✅ **期間の短縮**: 返済期間を{int(dynamic_ceil)}ヶ月以下にすると安定性が増します。")
+                if not (current_sba_ratio < 0.75 or term > dynamic_ceil):
+                    st.write("✨ 現在の条件は論理的に非常に安定しています。")
+
+            # 類似事例テーブル
             st.divider()
-            st.write("### 📂 類似事例との比較")
+            st.write("### 📂 類似事例との比較 (上位10件)")
             my_data = pd.DataFrame([{"結果": "📢 今回の申請", "融資額": gross, "保証率": f"{current_sba_ratio*100:.1f}%", "金利": rate, "期間": term}])
             similar_cases['結果'] = similar_cases['LoanStatus'].apply(lambda x: "❌ 不履行" if x == 1 else "✅ 完済")
             similar_cases['融資額'] = similar_cases['GrossApproval']
             similar_cases['保証率'] = (similar_cases['SBA_Ratio'] * 100).map('{:.1f}%'.format)
             similar_cases['金利'] = similar_cases['InitialInterestRate']
             similar_cases['期間'] = similar_cases['TermInMonths']
+            
             comparison_df = pd.concat([my_data, similar_cases[['結果', '融資額', '保証率', '金利', '期間']].head(10)], ignore_index=True)
             st.dataframe(comparison_df.style.apply(lambda r: ['background-color: #e1f5fe' if r['結果']=="📢 今回の申請" else '' for _ in r], axis=1), use_container_width=True)
 
