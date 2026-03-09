@@ -208,8 +208,13 @@ if submit:
             name_map = {"TermInMonths": "返済期間", "GrossApproval": "融資額", "InitialInterestRate": "金利", "NaicsSector": "業界", "SBAGuaranteedApproval": "保証率"}
             imp_df['項目名'] = imp_df['項目'].map(lambda x: name_map.get(x, "その他"))
             imp_df['adj'] = imp_df['raw']
+            imp_df.loc[imp_df['項目'] == 'TermInMonths', 'adj'] *= 0.23
             imp_df.loc[imp_df['項目'] == 'GrossApproval', 'adj'] *= 1.7
+            imp_df.loc[imp_df['項目'] == 'SBAGuaranteedApproval', 'adj'] *= 0.8
+            imp_df.loc[imp_df['項目'] == 'NaicsSector', 'adj'] *= 0.5
+            imp_df.loc[imp_df['項目'] == 'InitialInterestRate', 'adj'] *= 0.9
             
+            main_items = ["返済期間", "融資額", "金利", "業界", "保証率"]
             display_imp = imp_df[imp_df['項目名'] != "その他"].groupby('項目名')['adj'].sum().reset_index()
             total_adj = display_imp['adj'].sum()
             display_imp['影響度(%)'] = (display_imp['adj'] / total_adj * 100).round(1)
