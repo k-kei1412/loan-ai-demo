@@ -27,7 +27,38 @@ def load_resources():
 model, train_df, file_name = load_resources()
 expected_features = model.feature_names_
 
-# --- サイドバー入力 ---
+# 3. 産業セクターの日本語マッピング辞書
+SECTOR_MAP = {
+    "11": "11: 農業・林業・漁業・狩猟業",
+    "21": "21: 採鉱業・採石業・石油・ガス採掘業",
+    "22": "22: 公益事業（電気・ガス・水道）",
+    "23": "23: 建設業",
+    "31": "31: 製造業（食品・繊維・アパレル等）",
+    "32": "32: 製造業（紙・薬品・プラスチック等）",
+    "33": "33: 製造業（金属・機械・電子機器等）",
+    "42": "42: 卸売業",
+    "44": "44: 小売業（自動車・家具・家電等）",
+    "45": "45: 小売業（スポーツ用品・書籍・EC等）",
+    "48": "48: 運輸業・倉庫業",
+    "49": "49: 運輸業・倉庫業（郵便・宅配）",
+    "51": "51: 情報通信業",
+    "52": "52: 金融業・保険業",
+    "53": "53: 不動産業・賃貸業",
+    "54": "54: 専門・科学・技術サービス業",
+    "55": "55: 企業・団体の管理（持株会社等）",
+    "56": "56: 運営・支援・廃棄物処理・再編サービス",
+    "61": "61: 教育サービス業",
+    "62": "62: 医療・福祉・社会扶助",
+    "71": "71: 芸術・エンターテインメント・レクリエーション",
+    "72": "72: 宿泊業・飲食サービス業",
+    "81": "81: その他のサービス業（修理・家事等）",
+    "92": "92: 公務"
+}
+
+# 逆引き辞書（日本語からコードを取得用）
+REVERSE_SECTOR_MAP = {v: k for k, v in SECTOR_MAP.items()}
+
+# --- サイドバー入力（修正版） ---
 st.sidebar.header("📋 申請者情報入力")
 with st.sidebar:
     gross = st.number_input("融資額 ($)", 0, 10000000, 700000)
@@ -35,8 +66,13 @@ with st.sidebar:
     rate = st.number_input("金利 (%)", 0.0, 35.0, 15.0)
     term = st.number_input("返済期間 (月)", 1, 360, 95)
     
-    sector_list = sorted(train_df['NaicsSector'].unique()) if not train_df.empty else []
-    sector_en = st.selectbox("産業セクター", options=sector_list)
+    # 日本語の選択肢を表示
+    sector_jp_list = [SECTOR_MAP.get(str(s), f"{s}: 未分類") for s in sorted(train_df['NaicsSector'].unique())] if not train_df.empty else []
+    selected_sector_jp = st.selectbox("産業セクター", options=sector_jp_list)
+    
+    # モデル入力用にコード（英語/数値）に変換
+    sector_en = REVERSE_SECTOR_MAP.get(selected_sector_jp, "72") # デフォルトは飲食
+    
     collateral = st.selectbox("担保の有無", ["あり (Y)", "なし (N)"])
     collateral_val = "Y" if "あり" in collateral else "N"
     
