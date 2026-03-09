@@ -88,7 +88,7 @@ if submit:
             strict_proba = np.clip(raw_proba, 0.03, 0.97) 
 
             # 1. 金利による緩和係数 (金利が高いほどペナルティを打ち消す)
-            rate_relief = min(2.0, max(0.0, (rate - 10.0) / 10.0)) 
+            rate_relief = min(1.5, max(0.0, (rate - 10.0) / 10.0)) 
 
             if gross >= 1000000:
                 # 【大口】AI予測を最重視 (60%)
@@ -106,7 +106,15 @@ if submit:
             # 最終的な完済期待値の算出
             penalty = 1.0 + (risk_index * penalty_factor)
             raw_success = (1 - (risk_index * penalty)) * 100
-            final_expected_success = max(1.0, raw_success)
+            
+            # 【重要】警告による直接減点ロジックの追加
+            warning_count = 0
+            if gross >= 1000000: warning_count += 1
+            if rate >= 20.0: warning_count += 1
+            if current_sba_ratio >= 0.7: warning_count += 1
+            
+            # 警告1つにつき期待値をさらに 10% ずつ強制カット
+            final_expected_success = max(1.0, raw_success - (warning_count * 10.0))
 
             # --- 表示用ラベルの生成 (30%未満ぼかし対応) ---
             if final_expected_success <= 30.0:
