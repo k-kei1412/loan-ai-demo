@@ -152,9 +152,32 @@ if submit:
             c1, c2, c3 = st.columns(3)
             with c1:
                 st.metric("実効リスク指数", f"{combined_risk * 100:.2f} %")
-                if status == "安全": st.success("総合判定: ✅ 安全")
-                elif status == "注意": st.warning("総合判定: ⚠️ 注意")
-                else: st.error("総合判定: 🚨 危険 (要精査)")
+                
+                # --- 判定理由の動的生成 ---
+                reasons = []
+                if gross >= 1000000:
+                    reasons.append("・100万ドル超の高額融資（要精査）")
+                elif gross >= 500000:
+                    reasons.append("・50万ドル超の中規模案件フラグ")
+                
+                if rate >= 20.0:
+                    reasons.append("・20%超の高金利設定（逆選択リスク）")
+                
+                if term > dynamic_ceil:
+                    reasons.append("・返済期間が適正上限を超過")
+
+                # 判定表示
+                if status == "安全":
+                    st.success("総合判定: ✅ 安全")
+                elif status == "注意":
+                    st.warning("総合判定: ⚠️ 注意")
+                    # 注意の理由を表示
+                    for r in reasons:
+                        st.caption(f":orange[{r}]")
+                else:
+                    st.error("総合判定: 🚨 危険 (要精査)")
+                    for r in reasons:
+                        st.caption(f":red[{r}]")
             with c2:
                 st.metric(f"実績事故率 (類似100件)", f"{risk_pct:.1f} %")
                 st.markdown(f"🔍 うち不履行事例: **{def_count}件**")
