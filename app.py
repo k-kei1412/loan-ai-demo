@@ -84,7 +84,7 @@ if submit:
             risk_pct = similar_cases['LoanStatus'].mean() * 100
             def_count = int(similar_cases['LoanStatus'].sum())
 
-            # --- C. 数値正常化ロジック (論理安定性とアラートの統合) ---
+            # --- C. 数値正常化ロジック (論理安定性・保証補正・アラート統合) ---
             strict_proba = np.clip(raw_proba, 0.01, 0.99)
             dynamic_ceil = 84 + (min(gross, 2000000) / 2000000) * 36
             
@@ -94,19 +94,29 @@ if submit:
             # AI予測(40%)と統計実績(60%)をブレンド
             base_risk_idx = (strict_proba * 0.4) + (risk_pct / 100 * 0.6)
 
-            # 🌟 論理的安定性によるリスク圧縮 (kumagai式最適化)
+            # 🌟 論理的安定性によるリスク圧縮
             stability_bonus = 1.0
             if term <= dynamic_ceil: stability_bonus *= 0.8
-            if current_sba_ratio >= 0.5: stability_bonus *= 0.9
             if rate <= 15.0: stability_bonus *= 0.9
+
+            # 🛡️ 【重要】保証率による逆選択バイアスの相殺（オフセット）
+            # AIは「保証率が高い=危険」と判断しがちだが、実務的には「保証=保全」
+            # アドバイスとの整合性を取るため、高保証率には強力な引き下げを適用
+            sba_offset = 1.0
+            if current_sba_ratio >= 0.75:
+                sba_offset = 0.65  # 75%以上の保証なら、ベースリスクを35%強制カット
+            elif current_sba_ratio >= 0.50:
+                sba_offset = 0.85  # 50%以上の保証なら、ベースリスクを15%カット
             
-            combined_risk = base_risk_idx * stability_bonus + term_gap + high_rate_risk
+            # 最終リスク指数の算出
+            combined_risk = (base_risk_idx * stability_bonus * sba_offset) + term_gap + high_rate_risk
             combined_risk = np.clip(combined_risk, 0.02, 0.98)
 
             # 完済期待値の算出
             final_expected_success = (1.0 - combined_risk) * 100
+            # 低リスク帯（安定案件）への解析的ボーナス
             if combined_risk < 0.25:
-                final_expected_success += (0.25 - combined_risk) * 40 # 低リスク帯への加点
+                final_expected_success += (0.25 - combined_risk) * 40 
             
             final_expected_success = max(5.0, min(98.5, final_expected_success))
 
