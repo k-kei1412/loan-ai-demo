@@ -54,9 +54,38 @@ RAW_MAPPING = {
 }
 
 def get_japanese_sector(en_text):
-    """表記揺れを吸収して日本語名を返す関数"""
-    normalized = str(en_text).lower().replace("_", "").replace(" ", "").strip()
-    return RAW_MAPPING.get(normalized, en_text)
+    """
+    表記揺れや長い英語名をキーワード判定で日本語にする最強版
+    """
+    # 判定用に小文字化
+    text = str(en_text).lower()
+    
+    # 1. 特徴的な単語が含まれているか順番にチェック
+    if "accommodation" in text: return "宿泊・飲食サービス業"
+    if "administrative" in text: return "運営支援・廃棄物処理"
+    if "agriculture" in text: return "農業・林業・漁業"
+    if "arts" in text: return "芸術・娯楽・レクリエーション"
+    if "construction" in text: return "建設業"
+    if "educational" in text: return "教育サービス業"
+    if "finance" in text: return "金融業・保険業"
+    if "health" in text: return "医療・福祉"
+    if "information" in text: return "情報通信業"
+    if "management" in text: return "企業管理・持株会社"
+    if "manufacturing" in text: return "製造業"
+    if "mining" in text: return "採鉱・石油ガス採掘"
+    if "professional" in text: return "専門・科学・技術サービス"
+    if "public" in text: return "公務"
+    if "real estate" in text or "real_estate" in text: return "不動産・賃貸業"
+    if "retail" in text: return "小売業"
+    if "transportation" in text: return "運輸業・倉庫業"
+    if "utilities" in text: return "公益事業（電気・ガス・水道）"
+    if "wholesale" in text: return "卸売業"
+    
+    # 2. 「Other」が含まれる場合（Other_services_except_public_administration等）
+    if "other" in text: return "その他サービス業"
+    
+    # 3. どれにも当てはまらない場合は元の文字を返す
+    return en_text
 
 # --- サイドバー入力 ---
 st.sidebar.header("📋 申請者情報入力")
