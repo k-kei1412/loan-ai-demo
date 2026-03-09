@@ -142,7 +142,7 @@ if submit:
             c1, c2, c3 = st.columns(3)
             with c1:
                 st.metric("実効リスク指数", f"{combined_risk * 100:.2f} %")
-                status = "安全" if final_expected_success > 70 else "注意" if final_expected_success > 40 else "危険"
+                status = "安全" if final_expected_success > 90 else "注意" if final_expected_success > 70 else "危険"
                 if status == "安全": st.success("総合判定: ✅ 安全")
                 elif status == "注意": st.warning("総合判定: ⚠️ 注意")
                 else: st.error("総合判定: 🚨 危険")
