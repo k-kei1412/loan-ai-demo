@@ -18,7 +18,7 @@ def load_resources():
     try:
         target = "train.csv" if os.path.exists("train.csv") else "train (4).csv"
         df = pd.read_csv(target)
-        # 数値・文字列の混在を防ぐため文字列に統一
+        # 確実に文字列型に変換
         df['NaicsSector'] = df['NaicsSector'].astype(str)
         df['SBA_Ratio'] = (df['SBAGuaranteedApproval'] / df['GrossApproval']).fillna(0)
         return model, df, target
@@ -28,11 +28,12 @@ def load_resources():
 model, train_df, file_name = load_resources()
 expected_features = model.feature_names_
 
-# 3. 英語セクター名から日本語名へのマッピング
-# スクリーンショットに基づき、データセット内の英語名を網羅
+# 3. 業界セクター：超広域マッピング辞書（アンダースコア/スペース両対応）
 JAPANESE_SECTOR_NAMES = {
     "Accommodation_food_services": "宿泊・飲食サービス業",
+    "Accommodation food services": "宿泊・飲食サービス業",
     "Administrative_support_waste_management_remediation_services": "運営支援・廃棄物処理",
+    "Administrative support waste management remediation services": "運営支援・廃棄物処理",
     "Agriculture_forestry_fishing_hunting": "農業・林業・漁業・狩猟業",
     "Arts_entertainment_recreation": "芸術・娯楽・レクリエーション",
     "Construction": "建設業",
@@ -62,14 +63,14 @@ with st.sidebar:
     term = st.number_input("返済期間 (月)", 1, 360, 95)
     
     if not train_df.empty:
-        # データにある英語名一覧を取得
+        # データにある生の一覧
         unique_en_sectors = sorted(train_df['NaicsSector'].unique())
-        # 日本語に変換したリストを作成。辞書にない場合は元の英語を表示
+        # 日本語に変換。辞書にない場合はそのまま（Accommodation_food_services 等）を表示
         display_options = [JAPANESE_SECTOR_NAMES.get(s, s) for s in unique_en_sectors]
         
         selected_jp = st.selectbox("産業セクター", options=display_options)
         
-        # 逆引き：日本語から元の英語名を取得してAIに渡す
+        # 逆引き：選んだ日本語から元の英語名を特定
         reverse_map = {v: k for k, v in JAPANESE_SECTOR_NAMES.items()}
         sector_en = reverse_map.get(selected_jp, selected_jp)
     else:
@@ -78,7 +79,6 @@ with st.sidebar:
 
     collateral = st.selectbox("担保の有無", ["あり (Y)", "なし (N)"])
     collateral_val = "Y" if "あり" in collateral else "N"
-    
     submit = st.button("精密クロス審査を開始")
 
 # 4. 分析ロジック
@@ -105,7 +105,6 @@ if submit:
             # --- B. 類似事例検索 ---
             search_pool = train_df[train_df['NaicsSector'] == sector_en].copy()
             if len(search_pool) < 100: search_pool = train_df.copy()
-
             search_features = ["GrossApproval", "InitialInterestRate", "TermInMonths", "SBA_Ratio"]
             train_num = search_pool[search_features].fillna(0)
             input_num = input_df[["GrossApproval", "InitialInterestRate", "TermInMonths"]].copy()
@@ -115,66 +114,47 @@ if submit:
             weights = np.array([1.2, 1.0, 1.0, 2.0]) 
             train_scaled = scaler.fit_transform(train_num) * weights
             input_scaled = scaler.transform(input_num) * weights
-
             nn = NearestNeighbors(n_neighbors=min(100, len(search_pool)))
             nn.fit(train_scaled)
             _, indices = nn.kneighbors(input_scaled)
             similar_cases = search_pool.iloc[indices[0]].copy()
-            
             risk_pct = similar_cases['LoanStatus'].mean() * 100
             def_count = int(similar_cases['LoanStatus'].sum())
 
-            # --- C. リスク統合ロジック ---
+            # --- C. リスク正規化 ---
             strict_proba = np.clip(raw_proba, 0.01, 0.99)
             dynamic_ceil = 84 + (min(gross, 2000000) / 2000000) * 36
             term_gap = max(0.0, (term - dynamic_ceil) / 100.0) * 0.7 if term > dynamic_ceil else 0.0
-
             gross_risk = 0.0
             sba_bonus_flag = False
-            if gross >= 1000000:
-                gross_risk = 0.40 + (gross - 1000000) / 1000000
-            elif gross > 500000:
-                steps = (gross - 500000) // 100000
-                gross_risk = steps * 0.04
-            
+            if gross >= 1000000: gross_risk = 0.40 + (gross - 1000000) / 1000000
+            elif gross > 500000: gross_risk = ((gross - 500000) // 100000) * 0.04
             if current_sba_ratio >= 0.80:
                 gross_risk *= 0.5
                 sba_bonus_flag = True
-
             rate_risk = max(0, (rate - 18.0) / 10.0) * 0.3
             if rate > 20.0: rate_risk += 0.1
-
             base_risk_idx = (strict_proba * 0.4) + (risk_pct / 100 * 0.6)
-
             stability_bonus = 1.0
             if term <= dynamic_ceil: stability_bonus *= 0.8
             if rate <= 15.0: stability_bonus *= 0.9
-            
             sba_offset = 1.0
             if current_sba_ratio >= 0.75: sba_offset = 0.65
             elif current_sba_ratio >= 0.50: sba_offset = 0.85
-            
             combined_risk = (base_risk_idx * stability_bonus * sba_offset) + term_gap + gross_risk + rate_risk
             combined_risk = np.clip(combined_risk, 0.02, 0.99)
+            final_expected_success = max(5.0, min(98.5, (1.0 - combined_risk) * 100))
 
-            final_expected_success = (1.0 - combined_risk) * 100
-            final_expected_success = max(5.0, min(98.5, final_expected_success))
-
-            # --- D. 報告書表示 ---
+            # --- D. 表示セクション ---
             st.subheader("🏁 総合審査報告書")
-            
-            # ステータス判定
             if gross >= 1000000:
-                status = "危険"
                 st.error("🚨 **【最重要精査案件】** $1M 超。役員承認必須。")
+                status = "危険"
             elif gross >= 500000 and rate >= 20.0 and not sba_bonus_flag:
+                st.error("💀 **【複合リスク】** 高額かつ高金利。慎重な判断が必要です。")
                 status = "注意"
-                st.error("💀 **【複合リスク】** 中規模かつ高金利。慎重な判断が必要です。")
             else:
                 status = "安全" if final_expected_success > 92 else "注意" if final_expected_success > 75 else "危険"
-
-            if sba_bonus_flag:
-                st.success(f"🛡️ **【保全インセンティブ適用】** 保証率80%超によりリスクを50%軽減中。")
 
             c1, c2, c3 = st.columns(3)
             with c1:
@@ -182,24 +162,33 @@ if submit:
                 if status == "安全": st.success("総合判定: ✅ 安全")
                 elif status == "注意": st.warning("総合判定: ⚠️ 注意")
                 else: st.error("総合判定: 🚨 危険")
-
             with c2:
                 st.metric(f"実績事故率 (類似100件)", f"{risk_pct:.1f} %")
-                st.write(f"🔍 うち不履行事例: **{def_count}件**")
+                st.write(f"🔍 不履行事例: **{def_count}件**")
             with c3:
                 st.metric("完済期待値 (実務評価)", f"{final_expected_success:.1f} %")
 
-            # アクション案
-            st.write("### 💡 審査改善へのアクション案")
-            with st.expander("アドバイスの詳細を確認する", expanded=True):
-                if current_sba_ratio < 0.75:
-                    st.write("✅ **保証枠の拡大**: 保証率を75%以上に引き上げると、銀行の保全が強化されます。")
-                if term > dynamic_ceil:
-                    st.write(f"✅ **期間の短縮**: 返済期間を{int(dynamic_ceil)}ヶ月以下にすると安定性が増します。")
-                if not (current_sba_ratio < 0.75 or term > dynamic_ceil):
-                    st.write("✨ 現在の条件は論理的に非常に安定しています。")
+            # --- E. 判断要素の割合表示 ---
+            st.divider()
+            st.write("### ⚖️ 判断に影響した主要要素")
+            importances = model.get_feature_importance()
+            imp_df = pd.DataFrame({'項目': expected_features, 'raw': importances})
+            name_map = {"TermInMonths": "返済期間", "GrossApproval": "融資額", "InitialInterestRate": "金利", "NaicsSector": "業界セクター", "SBAGuaranteedApproval": "保証額"}
+            imp_df['項目名'] = imp_df['項目'].map(lambda x: name_map.get(x, "その他"))
+            imp_df['adj'] = imp_df['raw']
+            imp_df.loc[imp_df['項目'] == 'TermInMonths', 'adj'] *= 0.23
+            imp_df.loc[imp_df['項目'] == 'GrossApproval', 'adj'] *= 1.7
+            imp_df.loc[imp_df['項目'] == 'SBAGuaranteedApproval', 'adj'] *= 0.8
+            imp_df.loc[imp_df['項目'] == 'NaicsSector', 'adj'] *= 0.5
+            imp_df.loc[imp_df['項目'] == 'InitialInterestRate', 'adj'] *= 0.9
+            
+            display_imp = imp_df[imp_df['項目名'] != "その他"].copy()
+            total_adj = display_imp['adj'].sum()
+            display_imp['影響度(%)'] = (display_imp['adj'] / total_adj * 100).round(1)
+            
+            final_display = display_imp.sort_values('影響度(%)', ascending=False).set_index('項目名')[['影響度(%)']]
+            st.table(final_display) # ここで割合をテーブル表示
 
-            # 類似事例テーブル
             st.divider()
             st.write("### 📂 類似事例との比較 (上位10件)")
             my_data = pd.DataFrame([{"結果": "📢 今回の申請", "融資額": gross, "保証率": f"{current_sba_ratio*100:.1f}%", "金利": rate, "期間": term}])
@@ -208,7 +197,6 @@ if submit:
             similar_cases['保証率'] = (similar_cases['SBA_Ratio'] * 100).map('{:.1f}%'.format)
             similar_cases['金利'] = similar_cases['InitialInterestRate']
             similar_cases['期間'] = similar_cases['TermInMonths']
-            
             comparison_df = pd.concat([my_data, similar_cases[['結果', '融資額', '保証率', '金利', '期間']].head(10)], ignore_index=True)
             st.dataframe(comparison_df.style.apply(lambda r: ['background-color: #e1f5fe' if r['結果']=="📢 今回の申請" else '' for _ in r], axis=1), use_container_width=True)
 
