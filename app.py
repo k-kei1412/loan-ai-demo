@@ -57,10 +57,11 @@ def get_japanese_sector(en_text):
 # --- サイドバー入力 ---
 st.sidebar.header("📋 申請者情報入力")
 with st.sidebar:
-    gross = st.number_input("融資額 ($)", 0, 10000000, 700000)
-    sba = st.number_input("保証額 ($)", 0, 10000000, 400000)
+    gross = st.number_input("融資額 ($)", 0, 10000000, 500000)
+    sba = st.number_input("保証額 ($)", 0, 10000000, 300000)
     rate = st.number_input("金利 (%)", 0.0, 35.0, 15.0)
-    term = st.number_input("返済期間 (月)", 1, 360, 95)
+    # 5~10年ぐらいが目安のため
+    term = st.number_input("返済期間 (月)", 1, 360, 84)
     
     if not train_df.empty:
         unique_en_sectors = sorted(train_df['NaicsSector'].unique())
