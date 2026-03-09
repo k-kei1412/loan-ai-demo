@@ -84,43 +84,42 @@ if submit:
             risk_pct = similar_cases['LoanStatus'].mean() * 100
             def_count = int(similar_cases['LoanStatus'].sum())
 
-            # --- C. リスク指数計算 (高金利緩和・3段階ハイブリッド) ---
+            # --- C. リスク指数計算 (期間逆転補正・厳格ハイブリッド) ---
             strict_proba = np.clip(raw_proba, 0.03, 0.97) 
 
-            # 1. 金利による緩和係数 (金利が高いほどペナルティを打ち消す)
+            # 1. 金利による緩和係数 (金利が高い収益性を考慮)
             rate_relief = min(1.5, max(0.0, (rate - 10.0) / 10.0)) 
+
+            # 2. 期間によるリスク増幅係数 (120ヶ月/10年 を一つの基準としてペナルティを強化)
+            # 120ヶ月の方が期待値が高くなる「逆転現象」を防ぐため、期間に比例して係数を上げる
+            term_factor = max(1.0, term / 120.0)
 
             if gross >= 1000000:
                 # 【大口】AI予測を最重視 (60%)
                 risk_index = (strict_proba * 0.6) + (risk_pct / 100 * 0.4)
-                penalty_factor = max(7.0, 9.0 - rate_relief) 
+                # 期間が長くなるほど、penalty_factor を増幅させて期待値を押し下げる
+                penalty_factor = max(8.0, (10.0 - rate_relief) * term_factor)
             elif gross >= 500000:
                 # 【中口】AI予測と実績をバランス良く (40%)
                 risk_index = (strict_proba * 0.4) + (risk_pct / 100 * 0.6)
-                penalty_factor = max(6.5, 8.0 - rate_relief)
+                penalty_factor = max(7.0, (8.5 - rate_relief) * term_factor)
             else:
                 # 【小口】実績統計を重視 (20%)
                 risk_index = (strict_proba * 0.2) + (risk_pct / 100 * 0.8)
-                penalty_factor = 5.0
+                penalty_factor = 6.0 * term_factor
 
             # 最終的な完済期待値の算出
             penalty = 1.0 + (risk_index * penalty_factor)
             raw_success = (1 - (risk_index * penalty)) * 100
             
-            # 【重要】警告による直接減点ロジックの追加
+            # 【重要】警告による直接減点 (実務的な厳しさを担保)
             warning_count = 0
             if gross >= 1000000: warning_count += 1
             if rate >= 20.0: warning_count += 1
             if current_sba_ratio >= 0.7: warning_count += 1
             
-            # 警告1つにつき期待値をさらに 10% ずつ強制カット
+            # 警告による直接カット (1つにつき10%) ＋ 最低値 1.0% 維持
             final_expected_success = max(1.0, raw_success - (warning_count * 10.0))
-
-            # --- 表示用ラベルの生成 (30%未満ぼかし対応) ---
-            if final_expected_success <= 30.0:
-                display_success = "30.0% 未満 (要・個別精査)"
-            else:
-                display_success = f"{final_expected_success:.1f} %"
 
             # --- D. メイン表示 ---
             st.subheader("🏁 総合審査報告書")
