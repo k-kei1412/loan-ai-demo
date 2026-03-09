@@ -84,42 +84,50 @@ if submit:
             risk_pct = similar_cases['LoanStatus'].mean() * 100
             def_count = int(similar_cases['LoanStatus'].sum())
 
-            # --- C. 数値正常化ロジック (改訂版) ---
+            # --- C. 数値正常化ロジック (論理安定性とアラートの統合) ---
             strict_proba = np.clip(raw_proba, 0.01, 0.99)
-            
-            # 1. 動的な適正期間の算出 (融資額に連動)
             dynamic_ceil = 84 + (min(gross, 2000000) / 2000000) * 36
             
-            # 2. リスク因子の計算 (掛け算の連鎖を廃止し、最大値を抑制)
-            term_risk = max(0.0, (term - dynamic_ceil) / 120.0) * 0.5 if term > dynamic_ceil else 0.0
-            # 大口かつ高金利の場合のみペナルティを加算
-            selection_risk = 0.2 if (gross >= 500000 and rate >= 20.0) else 0.0
+            term_gap = max(0.0, (term - dynamic_ceil) / 120.0) if term > dynamic_ceil else 0.0
+            high_rate_risk = 0.15 if (gross >= 500000 and rate >= 20.0) else 0.0
             
-            # 3. リスク指数の統合 (配分をマイルドに調整)
-            if gross >= 1000000:
-                combined_risk = (strict_proba * 0.6) + (risk_pct / 100 * 0.4)
-            else:
-                # 中・小口はAIの個別判断と統計を半々に
-                combined_risk = (strict_proba * 0.5) + (risk_pct / 100 * 0.5)
+            # AI予測(40%)と統計実績(60%)をブレンド
+            base_risk_idx = (strict_proba * 0.4) + (risk_pct / 100 * 0.6)
 
-            # 最終的な期待値計算 (急激な減衰を抑えた解析的モデル)
-            # base_success は 0~1 のスコア。これにリスク因子を引き算していく
-            base_success = 1.0 - combined_risk
+            # 🌟 論理的安定性によるリスク圧縮 (kumagai式最適化)
+            stability_bonus = 1.0
+            if term <= dynamic_ceil: stability_bonus *= 0.8
+            if current_sba_ratio >= 0.5: stability_bonus *= 0.9
+            if rate <= 15.0: stability_bonus *= 0.9
             
-            # 期待値の算出：線形減衰と最小保証（ボトム）の組み合わせ
-            # リスクが 40% なら期待値は 60% 付近、そこから期間や金利のペナルティを引く
-            final_expected_success = (base_success - term_risk - selection_risk) * 100
-            # 下限値を 5.0% に設定し、完全にゼロにはならないように調整
-            final_expected_success = max(5.0, min(98.0, final_expected_success))
+            combined_risk = base_risk_idx * stability_bonus + term_gap + high_rate_risk
+            combined_risk = np.clip(combined_risk, 0.02, 0.98)
+
+            # 完済期待値の算出
+            final_expected_success = (1.0 - combined_risk) * 100
+            if combined_risk < 0.25:
+                final_expected_success += (0.25 - combined_risk) * 40 # 低リスク帯への加点
+            
+            final_expected_success = max(5.0, min(98.5, final_expected_success))
 
             # --- D. メイン表示 ---
             st.subheader("🏁 総合審査報告書")
             
-            st.write("### 🔍 審査のポイント")
+            # 🚨 アラートセクション
+            st.write("### 🔍 実務者への重点確認事項")
+            if gross >= 1000000:
+                st.warning(f"💰 **【要確認：高額案件】** 融資額 $1M 超。キャッシュフローの継続性を役員級で再精査してください。")
+            elif gross >= 500000:
+                st.info(f"📂 **【中規模案件】** 融資額 $500k 超。事業計画の妥当性を重点的に確認してください。")
+
+            if rate >= 20.0:
+                st.error(f"🚨 **【要確認：高利得リスク】** 金利 20% 超。逆選択の可能性を重点調査してください。")
+
             if term > dynamic_ceil:
-                st.info(f"⏳ **【期間の検討】** 本案件規模での理想的な期間（{int(dynamic_ceil)}ヶ月）を超過しています。")
-            if final_expected_success > 60 and (gross >= 500000 and rate >= 12.0):
-                st.write("✅ 中規模案件として、金利とリスクのバランスは実務的な範囲内です。")
+                st.warning(f"⏳ **【期間超過】** 本規模の適正上限（{int(dynamic_ceil)}ヶ月）を超過。回収シナリオの再考を推奨。")
+
+            if term <= dynamic_ceil and rate <= 18.0 and current_sba_ratio >= 0.5:
+                st.success("✨ **【論理的安定】** 構成要素が論理的に安定しており、リスクが抑制されています。")
 
             c1, c2, c3 = st.columns(3)
             with c1:
@@ -133,38 +141,27 @@ if submit:
                 st.markdown(f"🔍 うち不履行事例: **{def_count}件**")
             with c3:
                 st.metric("完済期待値 (実務評価)", f"{final_expected_success:.1f} %")
-                if final_expected_success <= 40.0:
-                    st.caption(":red[⚠️ 慎重な稟議が必要です]")
 
-            # --- E. 改善アドバイス ---
+            # --- E. 改善アクション ---
             st.write("### 💡 審査改善へのアクション案")
             with st.expander("アドバイスの詳細を確認する", expanded=True):
                 advice = []
-                if final_expected_success < 75:
-                    if term > dynamic_ceil:
-                        advice.append(f"✅ **期間の最適化**: 期間を {int(dynamic_ceil)}ヶ月に近づけると、さらにスコアが改善します。")
-                    if current_sba_ratio < 0.6:
-                        advice.append("✅ **保証利用の強化**: 保証比率を高めることで、銀行側の実質リスクを低減可能です。")
-                
+                if term > dynamic_ceil:
+                    advice.append(f"✅ **期間の最適化**: {int(dynamic_ceil)}ヶ月以下への短縮で、回収確実性が大幅に向上します。")
+                if current_sba_ratio < 0.75:
+                    advice.append("✅ **保証枠の拡大**: 保証率を 75% 以上に引き上げることで、銀行の実効リスクを劇的に抑えられます。")
                 if not advice:
-                    st.write("✨ 構成は論理的に安定しています。")
+                    st.write("✨ 現在の条件は論理的に安定しています。")
                 else:
                     for a in advice: st.write(a)
 
-            # --- F. 構成要素と比較 (kumagai式重み付けを再適用) ---
+            # --- F. 判断に影響した主要要素 ---
             st.write("### ⚖️ 判断に影響した主要要素")
             importances = model.get_feature_importance()
             imp_df = pd.DataFrame({'項目': expected_features, 'raw': importances})
-            name_map = {
-                "TermInMonths": "返済期間", 
-                "GrossApproval": "融資額", 
-                "InitialInterestRate": "金利", 
-                "NaicsSector": "業界", 
-                "SBAGuaranteedApproval": "保証率"
-            }
+            name_map = {"TermInMonths": "返済期間", "GrossApproval": "融資額", "InitialInterestRate": "金利", "NaicsSector": "業界", "SBAGuaranteedApproval": "保証率"}
             imp_df['項目名'] = imp_df['項目'].map(lambda x: name_map.get(x, "その他"))
             
-            # --- ここで以前の比率調整を復活 ---
             imp_df['adj'] = imp_df['raw']
             imp_df.loc[imp_df['項目'] == 'TermInMonths', 'adj'] *= 0.23
             imp_df.loc[imp_df['項目'] == 'GrossApproval', 'adj'] *= 1.7
@@ -174,11 +171,8 @@ if submit:
             
             main_items = ["返済期間", "融資額", "金利", "業界", "保証率"]
             display_imp = imp_df[imp_df['項目名'].isin(main_items)].groupby('項目名')['adj'].sum().reset_index()
-            
-            # 全体を100%に正規化して表示
             total_main_adj = display_imp['adj'].sum()
             display_imp['影響度(%)'] = (display_imp['adj'] / total_main_adj * 100).round(1)
-            
             st.table(display_imp.sort_values('影響度(%)', ascending=False).set_index('項目名')[['影響度(%)']])
 
             st.divider()
