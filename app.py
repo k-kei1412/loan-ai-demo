@@ -184,6 +184,9 @@ if submit:
             imp_df['adj'] = imp_df['raw']
             imp_df.loc[imp_df['項目'] == 'TermInMonths', 'adj'] *= 0.23
             imp_df.loc[imp_df['項目'] == 'GrossApproval', 'adj'] *= 1.7
+            imp_df.loc[imp_df['項目'] == 'SBAGuaranteedApproval', 'adj'] *= 0.8
+            imp_df.loc[imp_df['項目'] == 'NaicsSector', 'adj'] *= 0.5
+            imp_df.loc[imp_df['項目'] == 'InitialInterestRate', 'adj'] *= 0.9
             
             display_imp = imp_df[imp_df['項目名'] != "その他"].groupby('項目名')['adj'].sum().reset_index()
             total = display_imp['adj'].sum()
