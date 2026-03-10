@@ -205,27 +205,49 @@ else:
     else:
         # --- 高度解析 (裏面) ---
         st.header("🔬 高度数理エビデンス解析")
-        
-        # 1. SHAP解析 (横棒グラフ & 日本語化)
+        # 1. SHAP解析 (横棒グラフ & 日本語化 & 文字化け解消
         st.write("#### ⚖️ 項目別の完済寄与度 (SHAP Bar)")
         st.caption("※ 右に伸びるほど完済にポジティブ、左に伸びるほどリスク（不履行）要因であることを示します。")
         
+        # SHAPのBarプロットを表示するためのMatplotlibのフォント設定を追加
+        # 日本語フォントがインストールされている環境（Mac/Windows/Ubuntu）によって
+        # 指定すべき名前が異なりますが、Streamlit Cloud環境では標準的に「IPAGothic」
+        # またはMatplotlibの標準フォント指定をリセットすることで解消することが多いです。
+        try:
+            # 方法1: Matplotlibにシステム標準の日本語フォントを強制する
+            import matplotlib
+            matplotlib.rc('font', family='Noto Sans CJK JP') # または 'IPAGothic'
+        except:
+            # フォント指定がうまく行かない場合のフォールバック（最低限の対策）
+            pass
+        
+        # SHAP計算
         explainer = shap.TreeExplainer(model)
         shap_values = explainer(input_df)
         
-        # 数値を反転（完済を正にする）
+        # 数値を反転（右＝完済に貢献）
         shap_values.values = -shap_values.values
-        # ラベルを日本語に差し替え
+        
+        # 前回の name_map を使ってラベルを日本語に差し替え
+        # ここで日本語化された名前を shap_values に設定
         shap_values.feature_names = [name_map.get(n, n) for n in expected_features]
         
+        # matplotlibで描画して Streamlitに渡す
         fig, ax = plt.subplots(figsize=(8, 5))
-        # 横棒グラフとして描画
+        
+        # WaterfallではなくBarプロットを指定
         shap.plots.bar(shap_values[0], show=False)
+        
+        # Barプロット用のフォント再調整（Matplotlibの設定が上書きされた場合の対策）
+        try:
+            plt.yticks(fontname='Noto Sans CJK JP') # 縦軸のフォント
+        except:
+            pass
+        
         plt.tight_layout()
         st.pyplot(plt.gcf())
-
-        st.divider()
-
+        
+        
         # 2. マートン・モデル (スライダー連動)
         st.write("#### 📉 理論的倒産距離 (Merton Model)")
         col_m1, col_m2 = st.columns([1, 2])
