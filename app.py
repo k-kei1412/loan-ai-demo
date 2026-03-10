@@ -34,31 +34,27 @@ expected_features = model.feature_names_
 # 3. 業界セクター翻訳
 def get_japanese_sector(en_text):
     text = str(en_text).lower()
-    if "other" in text: return "その他サービス業"
-    if "accommodation" in text: return "宿泊・飲食サービス業"
-    if "administrative" in text: return "運営支援・廃棄物処理"
-    if "agriculture" in text: return "農業・林業・漁業"
-    if "arts" in text: return "芸術・娯楽・レクリエーション"
-    if "construction" in text: return "建設業"
-    if "educational" in text: return "教育サービス業"
-    if "finance" in text: return "金融業・保険業"
-    if "health" in text: return "医療・福祉"
-    if "information" in text: return "情報通信業"
-    if "management" in text: return "企業管理・持株会社"
-    if "manufacturing" in text: return "製造業"
-    if "mining" in text: return "採鉱・石油ガス採掘"
-    if "professional" in text: return "専門・科学・技術サービス"
-    if "public" in text: return "公務"
-    if "real estate" in text or "real_estate" in text: return "不動産・賃貸業"
-    if "retail" in text: return "小売業"
-    if "transportation" in text: return "運輸業・倉庫業"
-    if "utilities" in text: return "公益事業（電気・ガス・水道）"
-    if "wholesale" in text: return "卸売業"
+    sectors = {
+        "other": "その他サービス業", "accommodation": "宿泊・飲食サービス業",
+        "administrative": "運営支援・廃棄物処理", "agriculture": "農業・林業・漁業",
+        "arts": "芸術・娯楽・レクリエーション", "construction": "建設業",
+        "educational": "教育サービス業", "finance": "金融業・保険業",
+        "health": "医療・福祉", "information": "情報通信業",
+        "management": "企業管理・持株会社", "manufacturing": "製造業",
+        "mining": "採鉱・石油ガス採掘", "professional": "専門・科学・技術サービス",
+        "public": "公務", "real estate": "不動産・賃貸業", "retail": "小売業",
+        "transportation": "運輸業・倉庫業", "utilities": "公益事業", "wholesale": "卸売業"
+    }
+    for k, v in sectors.items():
+        if k in text: return v
     return en_text
 
-# --- サイドバー入力 ---
-st.sidebar.header("📋 申請者情報入力")
+# --- サイドバー管理 ---
+st.sidebar.header("📋 審査・解析設定")
+app_mode = st.sidebar.radio("📊 表示モード切替", ["総合報告 (表面)", "高度解析 (裏面)"])
+
 with st.sidebar:
+    st.divider()
     gross = st.number_input("融資額 ($)", 0, 10000000, 500000)
     sba = st.number_input("保証額 ($)", 0, 10000000, 300000)
     rate = st.number_input("金利 (%)", 0.0, 35.0, 15.0)
@@ -75,154 +71,181 @@ with st.sidebar:
 
     collateral = st.selectbox("担保の有無", ["あり (Y)", "なし (N)"])
     collateral_val = "Y" if "あり" in collateral else "N"
-    submit = st.button("精密クロス審査を開始")
 
-# 4. メイン分析ロジック
-if submit:
-    if train_df.empty:
-        st.error("学習データが見つかりません。")
+# 4. 共通分析ロジック
+if train_df.empty:
+    st.error("学習データが見つかりません。")
+else:
+    # 準備計算
+    current_sba_ratio = sba / gross if gross > 0 else 0
+    input_data = {
+        "GrossApproval": float(gross), "SBAGuaranteedApproval": float(sba),
+        "InitialInterestRate": float(rate), "TermInMonths": float(term),
+        "NaicsSector": sector_en, "ApprovalFiscalYear": 2024.0, "Subprogram": "Guaranty",
+        "FixedOrVariableInterestInd": "V", "CongressionalDistrict": 10.0,
+        "BusinessType": "CORPORATION", "BusinessAge": "Existing or more than 2 years old",
+        "RevolverStatus": 0.0, "JobsSupported": 5.0, "CollateralInd": collateral_val
+    }
+    input_df = pd.DataFrame([input_data]).reindex(columns=expected_features)
+    cat_idx = [i for i, col in enumerate(input_df.columns) if input_df[col].dtype == 'object']
+    
+    # AI予測
+    raw_proba = model.predict_proba(Pool(input_df, cat_features=cat_idx))[0][1]
+
+    # 類似事例検索 (k-NN)
+    search_pool = train_df[train_df['NaicsSector'] == sector_en].copy()
+    if len(search_pool) < 100: search_pool = train_df.copy()
+    search_features = ["GrossApproval", "InitialInterestRate", "TermInMonths", "SBA_Ratio"]
+    train_num = search_pool[search_features].fillna(0)
+    input_num = input_df[["GrossApproval", "InitialInterestRate", "TermInMonths"]].copy()
+    input_num["SBA_Ratio"] = current_sba_ratio
+    scaler = StandardScaler()
+    weights = np.array([1.2, 1.0, 1.0, 2.0]) 
+    train_scaled = scaler.fit_transform(train_num) * weights
+    input_scaled = scaler.transform(input_num) * weights
+    nn = NearestNeighbors(n_neighbors=min(100, len(search_pool)))
+    nn.fit(train_scaled)
+    _, indices = nn.kneighbors(input_scaled)
+    similar_cases = search_pool.iloc[indices[0]].copy()
+    risk_pct = similar_cases['LoanStatus'].mean() * 100
+    def_count = int(similar_cases['LoanStatus'].sum())
+
+    # 実務リスク指数・期待値計算
+    strict_proba = np.clip(raw_proba, 0.01, 0.99)
+    dynamic_ceil = 84 + (min(gross, 2000000) / 2000000) * 36
+    term_gap = max(0.0, (term - dynamic_ceil) / 100.0) * 0.7 if term > dynamic_ceil else 0.0
+    sba_bonus_flag = (current_sba_ratio >= 0.80)
+    
+    gross_risk = 0.40 + (gross - 1000000) / 1000000 if gross >= 1000000 else ((gross - 500000) // 100000) * 0.04 if gross > 500000 else 0.0
+    if sba_bonus_flag: gross_risk *= 0.5
+    
+    rate_risk = max(0, (rate - 18.0) / 10.0) * 0.3 + (0.1 if rate > 20.0 else 0)
+    base_risk_idx = (strict_proba * 0.4) + (risk_pct / 100 * 0.6)
+    sba_offset = 0.65 if current_sba_ratio >= 0.75 else 0.85 if current_sba_ratio >= 0.50 else 1.0
+    combined_risk = (base_risk_idx * sba_offset) + term_gap + gross_risk + rate_risk
+    final_expected_success = max(5.0, min(98.5, (1.0 - combined_risk) * 100))
+
+    # --- 画面描画 ---
+    if app_mode == "総合報告 (表面)":
+        # --- D. 表示セクション (警告・判定) ---
+        st.subheader("🏁 総合審査報告書")
+        st.write("### 🔍 実務者への重点確認事項")
+        
+        # 判定ステータスの決定
+        if gross >= 1000000:
+            status = "危険"
+            st.error("🚨 **【最重要精査案件】** 融資額が $1M を超過。役員承認が必須。")
+        elif gross >= 500000 and rate >= 20.0 and not sba_bonus_flag:
+            status = "注意"
+            st.error("💀 **【複合リスク】** 高額かつ高金利。80%以上の保証がないため警戒。")
+        else:
+            status = "安全" if final_expected_success > 92 else "注意" if final_expected_success > 75 else "危険"
+
+        # 個別フラグの表示
+        if sba_bonus_flag:
+            st.success(f"🛡️ **【保全インセンティブ適用】** 保証率80%超により高額融資リスクを50%軽減。")
+        if 500000 <= gross < 1000000:
+            st.info(f"📂 **【中規模案件】** 50万ドル超。リスク加重適用中。")
+        if term > dynamic_ceil:
+            st.warning(f"⏳ **【期間超過】** 適正上限（{int(dynamic_ceil)}ヶ月）を超過。")
+
+        # 指標の3列表示
+        c1, c2, c3 = st.columns(3)
+        with c1:
+            st.metric("実効リスク指数", f"{combined_risk * 100:.2f} %")
+            reasons = []
+            if gross >= 1000000: reasons.append("・100万ドル超の高額融資")
+            elif gross >= 500000: reasons.append("・50万ドル超の中規模案件")
+            if rate >= 20.0: reasons.append("・20%超の高金利")
+            if term > dynamic_ceil: reasons.append("・返済期間の超過")
+            if sba_bonus_flag: reasons.append("・（緩和）80%超の強固な保証")
+
+            if status == "安全": st.success("総合判定: ✅ 安全")
+            elif status == "注意":
+                st.warning("総合判定: ⚠️ 注意")
+                for r in reasons: st.caption(f":orange[{r}]")
+            else:
+                st.error("総合判定: 🚨 危険 (要精査)")
+                for r in reasons: st.caption(f":red[{r}]")
+
+        with c2:
+            st.metric(f"実績事故率 (類似100件)", f"{risk_pct:.1f} %")
+            st.markdown(f"🔍 うち不履行事例: **{def_count}件**")
+        with c3:
+            st.metric("完済期待値 (実務評価)", f"{final_expected_success:.1f} %")
+
+        st.divider()
+
+        # 5. 要素インパクトの表示
+        st.write("### ⚖️ 判断に影響した主要要素")
+        importances = model.get_feature_importance()
+        imp_df = pd.DataFrame({'項目': expected_features, 'raw': importances})
+        name_map = {"TermInMonths": "返済期間", "GrossApproval": "融資額", "InitialInterestRate": "金利", "NaicsSector": "業界", "SBAGuaranteedApproval": "保証率"}
+        imp_df['項目名'] = imp_df['項目'].map(lambda x: name_map.get(x, "その他"))
+        
+        # 重み付け調整
+        imp_df['adj'] = imp_df['raw']
+        imp_df.loc[imp_df['項目'] == 'TermInMonths', 'adj'] *= 0.23
+        imp_df.loc[imp_df['項目'] == 'GrossApproval', 'adj'] *= 1.7
+        imp_df.loc[imp_df['項目'] == 'SBAGuaranteedApproval', 'adj'] *= 0.8
+        imp_df.loc[imp_df['項目'] == 'NaicsSector', 'adj'] *= 0.5
+        imp_df.loc[imp_df['項目'] == 'InitialInterestRate', 'adj'] *= 0.9
+        
+        display_imp = imp_df[imp_df['項目名'] != "その他"].groupby('項目名')['adj'].sum().reset_index()
+        display_imp['影響度(%)'] = (display_imp['adj'] / display_imp['adj'].sum() * 100).round(1)
+        st.table(display_imp.sort_values('影響度(%)', ascending=False).set_index('項目名')[['影響度(%)']])
+
+        st.divider()
+        st.write("### 📂 類似事例の傾向")
+        similar_cases['結果'] = similar_cases['LoanStatus'].apply(lambda x: "❌ 不履行" if x == 1 else "✅ 完済")
+        st.dataframe(similar_cases[['結果', 'GrossApproval', 'InitialInterestRate', 'TermInMonths']].head(10), use_container_width=True)
+
     else:
-        try:
-            # 準備計算
-            current_sba_ratio = sba / gross if gross > 0 else 0
-            input_data = {
-                "GrossApproval": float(gross), "SBAGuaranteedApproval": float(sba),
-                "InitialInterestRate": float(rate), "TermInMonths": float(term),
-                "NaicsSector": sector_en, "ApprovalFiscalYear": 2024.0, "Subprogram": "Guaranty",
-                "FixedOrVariableInterestInd": "V", "CongressionalDistrict": 10.0,
-                "BusinessType": "CORPORATION", "BusinessAge": "Existing or more than 2 years old",
-                "RevolverStatus": 0.0, "JobsSupported": 5.0, "CollateralInd": collateral_val
-            }
-            input_df = pd.DataFrame([input_data]).reindex(columns=expected_features)
-            cat_idx = [i for i, col in enumerate(input_df.columns) if input_df[col].dtype == 'object']
-            
-            # AI予測
-            raw_proba = model.predict_proba(Pool(input_df, cat_features=cat_idx))[0][1]
+        # --- 高度解析 (裏面) ---
+        st.header("🔬 高度数理エビデンス解析")
+        
+        # 1. SHAP解析 (日本語化 & 反転)
+        st.write("#### ⚖️ 完済可能性を高めている要因 (SHAP Waterfall)")
+        st.caption("※ 右に伸びるほど完済にポジティブな影響を与えています。")
+        explainer = shap.TreeExplainer(model)
+        shap_values = explainer(input_df)
+        shap_values.values = -shap_values.values
+        shap_values.base_values = -shap_values.base_values
+        name_map = {"TermInMonths": "返済期間", "GrossApproval": "融資額", "InitialInterestRate": "金利", "NaicsSector": "業界", "SBAGuaranteedApproval": "保証率"}
+        shap_values.feature_names = [name_map.get(n, n) for n in shap_values.feature_names]
+        st_shap(shap.plots.waterfall(shap_values[0]), height=350)
 
-            # 類似事例検索 (k-NN)
-            search_pool = train_df[train_df['NaicsSector'] == sector_en].copy()
-            if len(search_pool) < 100: search_pool = train_df.copy()
-            search_features = ["GrossApproval", "InitialInterestRate", "TermInMonths", "SBA_Ratio"]
-            train_num = search_pool[search_features].fillna(0)
-            input_num = input_df[["GrossApproval", "InitialInterestRate", "TermInMonths"]].copy()
-            input_num["SBA_Ratio"] = current_sba_ratio
-            scaler = StandardScaler()
-            weights = np.array([1.2, 1.0, 1.0, 2.0]) 
-            train_scaled = scaler.fit_transform(train_num) * weights
-            input_scaled = scaler.transform(input_num) * weights
-            nn = NearestNeighbors(n_neighbors=min(100, len(search_pool)))
-            nn.fit(train_scaled)
-            _, indices = nn.kneighbors(input_scaled)
-            similar_cases = search_pool.iloc[indices[0]].copy()
-            risk_pct = similar_cases['LoanStatus'].mean() * 100
-            def_count = int(similar_cases['LoanStatus'].sum())
+        st.divider()
 
-            # リスク指数計算
-            strict_proba = np.clip(raw_proba, 0.01, 0.99)
-            dynamic_ceil = 84 + (min(gross, 2000000) / 2000000) * 36
-            term_gap = max(0.0, (term - dynamic_ceil) / 100.0) * 0.7 if term > dynamic_ceil else 0.0
-            gross_risk = 0.0
-            sba_bonus_flag = (current_sba_ratio >= 0.80)
-            if gross >= 1000000: gross_risk = 0.40 + (gross - 1000000) / 1000000
-            elif gross > 500000: gross_risk = ((gross - 500000) // 100000) * 0.04
-            if sba_bonus_flag: gross_risk *= 0.5
-            
-            rate_risk = max(0, (rate - 18.0) / 10.0) * 0.3
-            if rate > 20.0: rate_risk += 0.1
-            base_risk_idx = (strict_proba * 0.4) + (risk_pct / 100 * 0.6)
-            sba_offset = 0.65 if current_sba_ratio >= 0.75 else 0.85 if current_sba_ratio >= 0.50 else 1.0
-            combined_risk = (base_risk_idx * sba_offset) + term_gap + gross_risk + rate_risk
-            final_expected_success = max(5.0, min(98.5, (1.0 - combined_risk) * 100))
+        # 2. マートン・モデル (スライダー連動)
+        st.write("#### 📉 理論的倒産距離 (Merton Model)")
+        col_m1, col_m2 = st.columns([1, 2])
+        with col_m1:
+            vol = st.slider("想定資産ボラティリティ (%)", 10, 100, 30) / 100
+            asset = float(gross) * 1.5
+            t_m = float(term) / 12
+            dd = (np.log(asset / gross) + (rate/100 - 0.5 * vol**2) * t_m) / (vol * np.sqrt(t_m))
+            st.metric("倒産距離 (DD)", f"{dd:.2f}")
+            st.metric("デフォルト確率 (EDF)", f"{stats.norm.cdf(-dd)*100:.2f} %")
+        with col_m2:
+            x = np.linspace(-4, 4, 100)
+            y = stats.norm.pdf(x, 0, 1)
+            fig, ax = plt.subplots(figsize=(6, 3))
+            ax.plot(x, y, color="gray")
+            ax.fill_between(x, y, where=(x < -dd), color='red', alpha=0.5, label='Default Risk')
+            ax.axvline(-dd, color='red', linestyle='--')
+            ax.set_title("Asset Value Distribution vs Default Point")
+            st.pyplot(fig)
 
-            # --- ここからタブ表示 ---
-            st.success("✅ 解析が完了しました。以下のタブで詳細を確認してください。")
-            tab1, tab2 = st.tabs(["📄 総合審査報告書 (表面)", "🔬 高度数理解析 (裏面)"])
+        st.divider()
 
-            with tab1:
-                st.subheader("🏁 総合判定結果")
-                c1, c2, c3 = st.columns(3)
-                with c1:
-                    st.metric("実効リスク指数", f"{combined_risk * 100:.2f} %")
-                    if final_expected_success > 90: st.success("判定: ✅ 安全")
-                    elif final_expected_success > 70: st.warning("判定: ⚠️ 注意")
-                    else: st.error("判定: 🚨 危険")
-                with c2:
-                    st.metric("類似事例事故率", f"{risk_pct:.1f} %")
-                with c3:
-                    st.metric("完済期待値", f"{final_expected_success:.1f} %")
-
-                # --- 5. 要素インパクトの表示（再統合） ---
-                st.write("### ⚖️ 判断に影響した主要要素")
-                importances = model.get_feature_importance()
-                imp_df = pd.DataFrame({'項目': expected_features, 'raw': importances})
-                name_map = {
-                    "TermInMonths": "返済期間", 
-                    "GrossApproval": "融資額", 
-                    "InitialInterestRate": "金利", 
-                    "NaicsSector": "業界", 
-                    "SBAGuaranteedApproval": "保証率"
-                }
-                imp_df['項目名'] = imp_df['項目'].map(lambda x: name_map.get(x, "その他"))
-                
-                # ご提示の重み付けロジック
-                imp_df['adj'] = imp_df['raw']
-                imp_df.loc[imp_df['項目'] == 'TermInMonths', 'adj'] *= 0.23
-                imp_df.loc[imp_df['項目'] == 'GrossApproval', 'adj'] *= 1.7
-                imp_df.loc[imp_df['項目'] == 'SBAGuaranteedApproval', 'adj'] *= 0.8
-                imp_df.loc[imp_df['項目'] == 'NaicsSector', 'adj'] *= 0.5
-                imp_df.loc[imp_df['項目'] == 'InitialInterestRate', 'adj'] *= 0.9
-                
-                display_imp = imp_df[imp_df['項目名'] != "その他"].groupby('項目名')['adj'].sum().reset_index()
-                total_adj = display_imp['adj'].sum()
-                display_imp['影響度(%)'] = (display_imp['adj'] / total_adj * 100).round(1)
-                
-                st.table(display_imp.sort_values('影響度(%)', ascending=False).set_index('項目名')[['影響度(%)']])
-
-                st.divider()
-                st.write("### 📂 類似100件の明細")
-                # (以下、類似事例の表示コード...)
-
-                st.write("### 📂 類似100件の明細")
-                similar_cases['結果'] = similar_cases['LoanStatus'].apply(lambda x: "❌ 不履行" if x == 1 else "✅ 完済")
-                st.dataframe(similar_cases[['結果', 'GrossApproval', 'InitialInterestRate', 'TermInMonths']].head(10), use_container_width=True)
-
-            with tab2:
-                st.subheader("🔬 数理エビデンス・ダッシュボード")
-                
-                # 1. SHAP解析
-                st.write("#### ⚖️ AIの判断根拠 (SHAP Waterfall)")
-                explainer = shap.TreeExplainer(model)
-                shap_values = explainer(input_df)
-                st_shap(shap.plots.waterfall(shap_values[0]), height=350)
-                
-
-                st.divider()
-
-                # 2. マートン・モデル
-                st.write("#### 📉 理論的倒産距離 (Merton Model)")
-                col_m1, col_m2 = st.columns(2)
-                with col_m1:
-                    vol = st.slider("想定ボラティリティ", 0.1, 1.0, 0.3)
-                    asset = float(gross) * 1.5
-                    t_m = float(term) / 12
-                    dd = (np.log(asset / gross) + (rate/100 - 0.5 * vol**2) * t_m) / (vol * np.sqrt(t_m))
-                    st.metric("倒産距離 (DD)", f"{dd:.2f}")
-                with col_m2:
-                    st.write("企業の資産価値が負債（融資額）を下回るまでの距離を標準偏差単位で測定しています。")
-                
-
-                st.divider()
-
-                # 3. What-if 分析
-                st.write("#### 🧪 金利感度シミュレーション")
-                sim_rates = np.linspace(5.0, 30.0, 15)
-                sim_probs = [100 * (1 - model.predict_proba(Pool(input_df.assign(InitialInterestRate=r), cat_features=cat_idx))[0][1]) for r in sim_rates]
-                fig, ax = plt.subplots(figsize=(8, 3))
-                ax.plot(sim_rates, sim_probs, '-o')
-                ax.set_title("Interest Rate vs Success Probability")
-                st.pyplot(fig)
-                
-
-        except Exception as e:
-            st.error(f"実行エラー: {e}")
-            st.info("モデルファイルやCSVファイルが正しいパスにあるか確認してください。")
+        # 3. What-if 分析
+        st.write("#### 🧪 金利感度シミュレーション")
+        sim_rates = np.linspace(5.0, 30.0, 15)
+        sim_probs = [100 * (1 - model.predict_proba(Pool(input_df.assign(InitialInterestRate=r), cat_features=cat_idx))[0][1]) for r in sim_rates]
+        fig, ax = plt.subplots(figsize=(8, 3))
+        ax.plot(sim_rates, sim_probs, '-o', color="#0078D4")
+        ax.axvline(x=rate, color='red', linestyle='--', label='Current Rate')
+        ax.set_ylabel("Success Probability (%)")
+        ax.set_xlabel("Interest Rate (%)")
+        st.pyplot(fig)
