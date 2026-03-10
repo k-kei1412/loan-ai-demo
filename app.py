@@ -80,6 +80,7 @@ with st.sidebar:
 
     collateral = st.selectbox("担保の有無", ["あり (Y)", "なし (N)"])
     collateral_val = "Y" if "あり" in collateral else "N"
+    submit = st.button("精密クロス審査を開始")
 
 # 4. 共通分析ロジック
 if train_df.empty:
