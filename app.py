@@ -31,6 +31,15 @@ def load_resources():
 model, train_df, file_name = load_resources()
 expected_features = model.feature_names_
 
+# --- 共通の項目名変換マップ (エラー防止のため関数の外・上部に配置) ---
+name_map = {
+    "TermInMonths": "返済期間", 
+    "GrossApproval": "融資額", 
+    "InitialInterestRate": "金利", 
+    "NaicsSector": "業界", 
+    "SBAGuaranteedApproval": "保証率"
+}
+
 # 3. 業界セクター翻訳
 def get_japanese_sector(en_text):
     text = str(en_text).lower()
@@ -127,7 +136,6 @@ else:
 
     # --- 画面描画 ---
     if app_mode == "総合報告 (表面)":
-        # --- D. 表示セクション (警告・判定) ---
         st.subheader("🏁 総合審査報告書")
         st.write("### 🔍 実務者への重点確認事項")
         
@@ -141,7 +149,6 @@ else:
         else:
             status = "安全" if final_expected_success > 92 else "注意" if final_expected_success > 75 else "危険"
 
-        # 個別フラグの表示
         if sba_bonus_flag:
             st.success(f"🛡️ **【保全インセンティブ適用】** 保証率80%超により高額融資リスクを50%軽減。")
         if 500000 <= gross < 1000000:
@@ -149,7 +156,6 @@ else:
         if term > dynamic_ceil:
             st.warning(f"⏳ **【期間超過】** 適正上限（{int(dynamic_ceil)}ヶ月）を超過。")
 
-        # 指標の3列表示
         c1, c2, c3 = st.columns(3)
         with c1:
             st.metric("実効リスク指数", f"{combined_risk * 100:.2f} %")
@@ -175,15 +181,11 @@ else:
             st.metric("完済期待値 (実務評価)", f"{final_expected_success:.1f} %")
 
         st.divider()
-
-        # 5. 要素インパクトの表示
         st.write("### ⚖️ 判断に影響した主要要素")
         importances = model.get_feature_importance()
         imp_df = pd.DataFrame({'項目': expected_features, 'raw': importances})
-        name_map = {"TermInMonths": "返済期間", "GrossApproval": "融資額", "InitialInterestRate": "金利", "NaicsSector": "業界", "SBAGuaranteedApproval": "保証率"}
         imp_df['項目名'] = imp_df['項目'].map(lambda x: name_map.get(x, "その他"))
         
-        # 重み付け調整
         imp_df['adj'] = imp_df['raw']
         imp_df.loc[imp_df['項目'] == 'TermInMonths', 'adj'] *= 0.23
         imp_df.loc[imp_df['項目'] == 'GrossApproval', 'adj'] *= 1.7
@@ -204,7 +206,6 @@ else:
         # --- 高度解析 (裏面) ---
         st.header("🔬 高度数理エビデンス解析")
         
-        # 1. SHAP解析 (日本語化 & 反転)
         # 1. SHAP解析 (横棒グラフ & 日本語化)
         st.write("#### ⚖️ 項目別の完済寄与度 (SHAP Bar)")
         st.caption("※ 右に伸びるほど完済にポジティブ、左に伸びるほどリスク（不履行）要因であることを示します。")
@@ -214,21 +215,17 @@ else:
         
         # 数値を反転（完済を正にする）
         shap_values.values = -shap_values.values
+        # ラベルを日本語に差し替え
+        shap_values.feature_names = [name_map.get(n, n) for n in expected_features]
         
-        # 項目名の日本語マップ（既存のname_mapを利用）
-        jp_feature_names = [name_map.get(n, n) for n in expected_features]
-        
-        # matplotlibで描画して、軸ラベルを日本語に差し替える
         fig, ax = plt.subplots(figsize=(8, 5))
-        
-        # 横棒グラフの描画
-        # shap.plots.bar は標準で絶対値順になることが多いため、
-        # 符号を維持したまま表示するために shap.abs.mean(0) 等ではなく直接指定
+        # 横棒グラフとして描画
         shap.plots.bar(shap_values[0], show=False)
-        
-        # Streamlitで表示
         plt.tight_layout()
         st.pyplot(plt.gcf())
+
+        st.divider()
+
         # 2. マートン・モデル (スライダー連動)
         st.write("#### 📉 理論的倒産距離 (Merton Model)")
         col_m1, col_m2 = st.columns([1, 2])
