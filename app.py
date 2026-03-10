@@ -205,18 +205,30 @@ else:
         st.header("🔬 高度数理エビデンス解析")
         
         # 1. SHAP解析 (日本語化 & 反転)
-        st.write("#### ⚖️ 完済可能性を高めている要因 (SHAP Waterfall)")
-        st.caption("※ 右に伸びるほど完済にポジティブな影響を与えています。")
+        # 1. SHAP解析 (横棒グラフ & 日本語化)
+        st.write("#### ⚖️ 項目別の完済寄与度 (SHAP Bar)")
+        st.caption("※ 右に伸びるほど完済にポジティブ、左に伸びるほどリスク（不履行）要因であることを示します。")
+        
         explainer = shap.TreeExplainer(model)
         shap_values = explainer(input_df)
+        
+        # 数値を反転（完済を正にする）
         shap_values.values = -shap_values.values
-        shap_values.base_values = -shap_values.base_values
-        name_map = {"TermInMonths": "返済期間", "GrossApproval": "融資額", "InitialInterestRate": "金利", "NaicsSector": "業界", "SBAGuaranteedApproval": "保証率"}
-        shap_values.feature_names = [name_map.get(n, n) for n in shap_values.feature_names]
-        st_shap(shap.plots.waterfall(shap_values[0]), height=350)
-
-        st.divider()
-
+        
+        # 項目名の日本語マップ（既存のname_mapを利用）
+        jp_feature_names = [name_map.get(n, n) for n in expected_features]
+        
+        # matplotlibで描画して、軸ラベルを日本語に差し替える
+        fig, ax = plt.subplots(figsize=(8, 5))
+        
+        # 横棒グラフの描画
+        # shap.plots.bar は標準で絶対値順になることが多いため、
+        # 符号を維持したまま表示するために shap.abs.mean(0) 等ではなく直接指定
+        shap.plots.bar(shap_values[0], show=False)
+        
+        # Streamlitで表示
+        plt.tight_layout()
+        st.pyplot(plt.gcf())
         # 2. マートン・モデル (スライダー連動)
         st.write("#### 📉 理論的倒産距離 (Merton Model)")
         col_m1, col_m2 = st.columns([1, 2])
