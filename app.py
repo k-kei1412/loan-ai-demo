@@ -326,15 +326,6 @@ if st.session_state.clicked:
                     ax2.plot(x, y, color="gray"); ax2.fill_between(x, y, where=(x < -dd), color='red', alpha=0.5)
                     st.pyplot(fig2)
 
-                # ここに業界ボラティリティ表を追加
-                st.write("##### 📊 業界別ボラティリティの目安（参考）")
-                vix_table_data = {
-                    "産業セクター": ["インフラ", "食料品・医薬", "製造・建設", "小売・飲食", "情報通信・IT", "スタートアップ"],
-                    "平均ボラティリティ": ["15% - 20%", "20% - 25%", "25% - 35%", "35% - 45%", "45% - 60%", "70%以上"],
-                    "リスク評価": ["極めて安定", "安定", "標準", "やや高い", "高い", "極めて高い"]
-                }
-                st.table(pd.DataFrame(vix_table_data))
-
                 with st.expander("📚 専門用語の解説：デフォルト確率と倒産距離", expanded=True):
                     st.write("""
                     **1. 倒産距離 (Distance to Default: DD)**
