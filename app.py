@@ -320,6 +320,20 @@ if st.session_state.clicked:
                     fig2, ax2 = plt.subplots(figsize=(6, 3))
                     ax2.plot(x, y, color="gray"); ax2.fill_between(x, y, where=(x < -dd), color='red', alpha=0.5)
                     st.pyplot(fig2)
+                    import pandas as pd
+
+                # 業界ボラティリティデータの作成
+                vix_data = {
+                    "産業セクター": ["インフラ（電気・ガス）", "食料品・医薬品", "製造業・建設業", "小売・飲食業", "情報通信・IT", "スタートアップ"],
+                    "平均ボラティリティ": ["15% - 20%", "20% - 25%", "25% - 35%", "35% - 45%", "45% - 60%", "70%以上"],
+                    "リスク評価": ["極めて安定", "安定", "標準", "やや高い", "高い", "極めて高い"]
+                }
+                df_vix = pd.DataFrame(vix_data)
+                
+                # Streamlitでの表示
+                with st.expander("💡 業界別ボラティリティの目安（参考）"):
+                    st.table(df_vix)
+                    st.caption("※この数値は一般的な市場データに基づく目安です。企業の個別事情により前後します。")
                     
                 with st.expander("📚 専門用語の解説：デフォルト確率と倒産距離", expanded=True):
                     st.write("""
