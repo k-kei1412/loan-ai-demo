@@ -243,8 +243,12 @@ if st.session_state.clicked:
                 st.write("### ⚖️ 判断に影響した主要要素")
                 importances = model.get_feature_importance()
                 imp_df = pd.DataFrame({'項目': expected_features, 'raw': importances})
+               # 重要度のカスタム調整（期間の影響を抑え、融資額を高める）
                 imp_df.loc[imp_df['項目'] == 'TermInMonths', 'raw'] *= 0.23
                 imp_df.loc[imp_df['項目'] == 'GrossApproval', 'raw'] *= 1.7
+                imp_df.loc[imp_df['項目'] == 'SBAGuaranteedApproval', 'raw'] *= 0.8
+                imp_df.loc[imp_df['項目'] == 'NaicsSector', 'raw'] *= 0.5
+                imp_df.loc[imp_df['項目'] == 'InitialInterestRate', 'raw'] *= 0.9
                 imp_df['項目名'] = imp_df['項目'].map(lambda x: name_map.get(x, "その他"))
                 display_imp = imp_df[imp_df['項目名'] != "その他"].groupby('項目名')['raw'].sum().reset_index()
                 display_imp['影響度(%)'] = (display_imp['raw'] / display_imp['raw'].sum() * 100).round(1)
