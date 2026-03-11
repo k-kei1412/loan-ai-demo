@@ -234,21 +234,66 @@ if submit:
             st.table(display_imp.sort_values('影響度(%)', ascending=False).set_index('項目名')[['影響度(%)']])
 
             # --- 高度解析 (裏面) ---
-            if app_mode == "高度解析 (裏面)":
-                st.divider()
-                st.header("🔬 高度数理エビデンス解析")
-                
-                # SHAP Waterfall
-                st.write("#### ⚖️ AIの判断根拠 (SHAP Waterfall)")
-                explainer = shap.TreeExplainer(model)
-                shap_values = explainer(input_df)
-                shap_values.values = -shap_values.values 
-                shap_values.feature_names = [name_map.get(n, n) for n in expected_features]
-                
-                fig_shap, ax_shap = plt.subplots(figsize=(10, 6))
-                set_japanese_font()
-                shap.plots.waterfall(shap_values[0], show=False)
-                st.pyplot(plt.gcf(), clear_figure=True)
-
-        except Exception as e:
-            st.error(f"分析エラー: {e}")
+            # --- 高度解析 (裏面) ---
+            st.header("🔬 高度数理エビデンス解析")
+            
+            # 1. SHAP解析 (横棒・反転・文字化け完全対策)
+            st.write("#### ⚖️ AIの判断根拠 (SHAP Waterfall)")
+            st.caption("※ 右側(赤)が完済に寄与する要因、左側(青)が不履行リスクを高める要因です。")
+            
+            explainer = shap.TreeExplainer(model)
+            shap_values = explainer(input_df)
+            
+            # 反転：モデルの出力(1=不履行)を(正=完済)に入れ替える
+            shap_values.values = -shap_values.values
+            # 日本語ラベル適用
+            shap_values.feature_names = [name_map.get(n, n) for n in expected_features]
+            
+            fig, ax = plt.subplots(figsize=(10, 6))
+            # グラフ描画直前のフォント強制設定
+            plt.rcParams['font.family'] = ['Heiti TC', 'MS Gothic', 'Hiragino Sans', 'IPAexGothic', 'sans-serif']
+            
+            # Waterfall図の描画
+            shap.plots.waterfall(shap_values[0], show=False)
+            plt.xlabel("完済への寄与度 (SHAP Value)", fontsize=10)
+            st.pyplot(plt.gcf())
+    
+            st.divider()
+    
+            # 2. マートン・モデル (スライダー連動)
+            st.write("#### 📉 理論的倒産距離 (Merton Model)")
+            vol = st.slider("想定資産ボラティリティ (%)", 10, 100, 30) / 100
+            asset = float(gross) * 1.5
+            t_m = float(term) / 12
+            dd = (np.log(asset / gross) + (rate/100 - 0.5 * vol**2) * t_m) / (vol * np.sqrt(t_m))
+            
+            col_m1, col_m2 = st.columns(2)
+            with col_m1:
+                st.metric("倒産距離 (DD)", f"{dd:.2f}")
+                st.metric("デフォルト確率 (EDF)", f"{stats.norm.cdf(-dd)*100:.2f} %")
+                st.caption("※ DDが1.0を下回ると、統計的な破綻リスクが急増します。")
+            with col_m2:
+                x = np.linspace(-4, 4, 100)
+                y = stats.norm.pdf(x, 0, 1)
+                fig2, ax2 = plt.subplots(figsize=(6, 3))
+                ax2.plot(x, y, color="gray")
+                ax2.fill_between(x, y, where=(x < -dd), color='red', alpha=0.5)
+                ax2.axvline(-dd, color='red', linestyle='--')
+                ax2.set_title("Asset Distribution vs Default Point")
+                st.pyplot(fig2)
+    
+            st.divider()
+    
+            # 3. What-if 分析
+            st.write("#### 🧪 金利感度シミュレーション")
+            sim_rates = np.linspace(5.0, 30.0, 15)
+            sim_probs = [100 * (1 - model.predict_proba(Pool(input_df.assign(InitialInterestRate=r), cat_features=cat_idx))[0][1]) for r in sim_rates]
+            
+            fig3, ax3 = plt.subplots(figsize=(10, 4))
+            ax3.plot(sim_rates, sim_probs, '-o', color="#0078D4", linewidth=2)
+            ax3.axvline(x=rate, color='red', linestyle='--', label=f'現在値 ({rate}%)')
+            ax3.set_ylabel("予測完済確率 (%)")
+            ax3.set_xlabel("設定金利 (%)")
+            ax3.grid(True, alpha=0.3)
+            ax3.legend()
+            st.pyplot(fig3)
