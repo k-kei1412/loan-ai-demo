@@ -256,8 +256,8 @@ if st.session_state.clicked:
 
             # --- 類似事例の復活 ---
                 st.divider()
-                st.write("### 👥 条件が近い過去の事例（上位5件）")
-                display_similar = similar_cases.head(5).copy()
+                st.write("### 👥 条件が近い過去の事例（上位100件）")
+                display_similar = similar_cases.head(100).copy()
                 display_similar['状況'] = display_similar['LoanStatus'].map({0: "✅ 完済", 1: "❌ 不履行"})
                 display_similar = display_similar.rename(columns=name_map)
                 st.dataframe(display_similar[[name_map[c] for c in ["GrossApproval", "InitialInterestRate", "TermInMonths"]] + ["状況"]], use_container_width=True)
