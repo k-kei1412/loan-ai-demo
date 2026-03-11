@@ -14,9 +14,8 @@ import matplotlib.font_manager as fm
 st.set_page_config(page_title="ローン審査AI：真・完全体", layout="wide")
 st.title("🏦 中小企業向けローン返済予測 AIシステム")
 
-# --- 文字化け・フォント対策 (強化版) ---
+# --- 文字化け・フォント対策 ---
 def set_japanese_font():
-    # システムにインストールされている日本語フォントを自動探索
     fonts = ['Heiti TC', 'MS Gothic', 'Hiragino Sans', 'Yu Gothic', 'IPAexGothic', 'Noto Sans CJK JP', 'DejaVu Sans']
     for f in fonts:
         if f in [font.name for font in fm.fontManager.ttflist]:
@@ -43,21 +42,32 @@ def load_resources():
 model, train_df, file_name = load_resources()
 expected_features = model.feature_names_
 
-# SHAP図などで使用する日本語項目名フルマップ
-name_map = {
-    "TermInMonths": "返済期間(月)", 
-    "GrossApproval": "融資額($)", 
-    "InitialInterestRate": "金利(%)", 
+# --- 実務向け：表示用マップの分離 ---
+# 1. グラフ専用（英語）：文字化けを絶対に起こさないための設定
+graph_name_map = {
+    "TermInMonths": "Loan Term", 
+    "GrossApproval": "Loan Amount", 
+    "InitialInterestRate": "Interest Rate", 
+    "NaicsSector": "Industry Sector", 
+    "SBAGuaranteedApproval": "SBA Guaranty",
+    "CollateralInd": "Collateral",
+    "ApprovalFiscalYear": "Fiscal Year",
+    "Subprogram": "Subprogram",
+    "FixedOrVariableInterestInd": "Rate Type",
+    "BusinessAge": "Business Age",
+    "CongressionalDistrict": "District",
+    "BusinessType": "Business Type",
+    "JobsSupported": "Jobs Created"
+}
+
+# 2. テーブル/UI用（日本語）：Streamlit標準機能で表示するため安全
+table_name_map = {
+    "TermInMonths": "返済期間", 
+    "GrossApproval": "融資額", 
+    "InitialInterestRate": "金利", 
     "NaicsSector": "業界セクター", 
-    "SBAGuaranteedApproval": "保証額($)",
-    "CollateralInd": "担保有無",
-    "ApprovalFiscalYear": "承認年度",
-    "Subprogram": "支援プログラム",
-    "FixedOrVariableInterestInd": "金利タイプ(固定/変動)",
-    "BusinessAge": "営業年数",
-    "CongressionalDistrict": "選挙区",
-    "BusinessType": "事業形態",
-    "JobsSupported": "雇用創出数"
+    "SBAGuaranteedApproval": "保証額",
+    "CollateralInd": "担保有無"
 }
 
 # 3. 業界セクター翻訳
@@ -119,7 +129,6 @@ if st.session_state.clicked:
         try:
             current_sba_ratio = sba / gross if gross > 0 else 0
             
-            # --- A. AI予測 (エラー回避ロジック) ---
             input_data = {
                 "GrossApproval": float(gross), "SBAGuaranteedApproval": float(sba),
                 "InitialInterestRate": float(rate), "TermInMonths": float(term),
@@ -136,7 +145,7 @@ if st.session_state.clicked:
             cat_idx = [i for i, col in enumerate(input_df.columns) if input_df[col].dtype == 'object']
             raw_proba = model.predict_proba(Pool(input_df, cat_features=cat_idx))[0][1]
 
-            # --- B. 類似事例検索 (対数距離補正) ---
+            # --- B. 類似事例検索 ---
             search_pool = train_df[train_df['NaicsSector'] == sector_en].copy()
             if len(search_pool) < 100: search_pool = train_df.copy()
             
@@ -199,32 +208,21 @@ if st.session_state.clicked:
                 c1, c2, c3 = st.columns(3)
                 with c1:
                     st.metric("実効リスク指数", f"{combined_risk * 100:.2f} %")
-                    reasons = []
-                    if gross >= 1000000: reasons.append("・100万ドル超の高額融資")
-                    if rate >= 20.0: reasons.append("・20%超の高金利")
-                    if term > dynamic_ceil: reasons.append("・返済期間の超過")
-
                     if status == "安全": st.success("総合判定: ✅ 安全")
-                    elif status == "注意":
-                        st.warning("総合判定: ⚠️ 注意")
-                        for r in reasons: st.caption(f":orange[{r}]")
-                    else:
-                        st.error("総合判定: 🚨 危険 (要精査)")
-                        for r in reasons: st.caption(f":red[{r}]")
-
+                    elif status == "注意": st.warning("総合判定: ⚠️ 注意")
+                    else: st.error("総合判定: 🚨 危険")
                 with c2:
                     st.metric(f"実績事故率 (類似100件)", f"{risk_pct:.1f} %")
-                    st.markdown(f"🔍 うち不履行事例: **{def_count}件**")
                 with c3:
                     st.metric("完済期待値 (実務評価)", f"{final_expected_success:.1f} %")
 
                 st.write("### 💡 審査改善へのアクション案")
                 with st.expander("アドバイスの詳細を確認する", expanded=True):
                     advice = []
-                    if gross >= 1000000: advice.append("⚠️ **金額の再検討**: 可能であれば分割融資または担保の積み増しを。")
-                    if term > dynamic_ceil: advice.append(f"✅ **期間の最適化**: {int(dynamic_ceil)}ヶ月以下への短縮を推奨。")
-                    if current_sba_ratio < 0.80: advice.append("✅ **保証枠の拡大**: 80%以上に引き上げるとリスク加重が半減します。")
-                    if not advice: st.write("✨ 現在の条件は論理的に非常に安定しています。")
+                    if gross >= 1000000: advice.append("⚠️ **金額の再検討**: 可能であれば分割融資を。")
+                    if term > dynamic_ceil: advice.append(f"✅ **期間の最適化**: {int(dynamic_ceil)}ヶ月以下へ。")
+                    if current_sba_ratio < 0.80: advice.append("✅ **保証枠の拡大**: 80%以上に引き上げを。")
+                    if not advice: st.write("✨ 現在の条件は非常に安定しています。")
                     else:
                         for a in advice: st.write(a)
 
@@ -232,14 +230,14 @@ if st.session_state.clicked:
                 st.write("### ⚖️ 判断に影響した主要要素")
                 importances = model.get_feature_importance()
                 imp_df = pd.DataFrame({'項目': expected_features, 'raw': importances})
-                # --- 元のベースコードのカスタム調整を維持 ---
+                # カスタム調整
                 imp_df.loc[imp_df['項目'] == 'TermInMonths', 'raw'] *= 0.23
                 imp_df.loc[imp_df['項目'] == 'GrossApproval', 'raw'] *= 1.7
                 imp_df.loc[imp_df['項目'] == 'SBAGuaranteedApproval', 'raw'] *= 0.8
                 imp_df.loc[imp_df['項目'] == 'NaicsSector', 'raw'] *= 0.5
                 imp_df.loc[imp_df['項目'] == 'InitialInterestRate', 'raw'] *= 0.9
-                # ----------------------------------------
-                imp_df['項目名'] = imp_df['項目'].map(lambda x: name_map.get(x, x).split('(')[0])
+                
+                imp_df['項目名'] = imp_df['項目'].map(lambda x: table_name_map.get(x, x))
                 display_imp = imp_df[imp_df['項目名'] != "その他"].groupby('項目名')['raw'].sum().reset_index()
                 display_imp['影響度(%)'] = (display_imp['raw'] / display_imp['raw'].sum() * 100).round(1)
                 st.table(display_imp.sort_values('影響度(%)', ascending=False).set_index('項目名')[['影響度(%)']])
@@ -248,7 +246,6 @@ if st.session_state.clicked:
                 st.write("### 👥 条件が近い過去の事例（上位100件）")
                 display_similar = similar_cases.head(100).copy()
                 display_similar['状況'] = display_similar['LoanStatus'].map({0: "✅ 完済", 1: "❌ 不履行"})
-                table_name_map = {k: v.split('(')[0] for k, v in name_map.items()}
                 display_similar = display_similar.rename(columns=table_name_map)
                 st.dataframe(display_similar[[table_name_map[c] for c in ["GrossApproval", "InitialInterestRate", "TermInMonths"]] + ["状況"]], use_container_width=True)
 
@@ -256,31 +253,34 @@ if st.session_state.clicked:
                 # 高度解析 (裏面)
                 st.header("🔬 高度数理エビデンス解析")
                 
-                # --- 1. SHAP解析 (文字化け・左側数値削除対策済み) ---
+                # --- 1. SHAP解析 (文字化け・不要数値削除対策済み) ---
                 st.write("#### ⚖️ AIの判断根拠 (SHAP Waterfall)")
+                st.caption("※ グラフ内は文字化け回避のため英語表記（実務標準）に変換しています。")
                 explainer = shap.TreeExplainer(model)
                 shap_values = explainer(input_df)
-                shap_values.values = -shap_values.values # 完済寄与を正に反転
-                shap_values.feature_names = [name_map.get(n, n) for n in expected_features]
+                shap_values.values = -shap_values.values # 完済寄与を正に
+                
+                # グラフ専用の英語名マップを適用
+                shap_values.feature_names = [graph_name_map.get(n, n) for n in expected_features]
                 
                 fig, ax = plt.subplots(figsize=(10, 6))
-                set_japanese_font() # 再度フォント適用
                 shap.plots.waterfall(shap_values[0], show=False)
                 
-                # 左側の "生の数値 = " を消す修正
+                # 左側の "84 = " 等の不要な数値を削除
                 labels = [t.get_text() for t in ax.get_yticklabels()]
                 new_labels = [l.split(" = ")[1] if " = " in l else l for l in labels]
                 ax.set_yticklabels(new_labels)
+                
+                plt.xlabel("Contribution to Full Repayment")
                 st.pyplot(plt.gcf(), clear_figure=True)
                 
                 st.divider()
 
-                # --- 2. マートン・モデル (DD / EDF) ---
+                # --- 2. マートン・モデル ---
                 st.write("#### 📉 理論的倒産距離 (Merton Model)")
                 vol = st.slider("想定資産ボラティリティ (%)", 10, 100, 30) / 100
                 asset = float(gross) * 1.5
                 t_m = float(term) / 12
-                # 理論式の計算
                 dd = (np.log(asset / gross) + (rate/100 - 0.5 * vol**2) * t_m) / (vol * np.sqrt(t_m))
                 edf = stats.norm.cdf(-dd) * 100
                 
@@ -297,18 +297,15 @@ if st.session_state.clicked:
                     ax2.axvline(-dd, color='red', linestyle='--')
                     st.pyplot(fig2)
 
-                # --- デフォルト確率と倒産距離の説明を追加 ---
                 with st.expander("📚 専門用語の解説：デフォルト確率と倒産距離", expanded=True):
                     st.write("""
                     **1. 倒産距離 (Distance to Default: DD)**
-                    企業の資産価値が、負債（融資額）の支払境界線からどれだけ離れているかを「標準偏差」の単位で表したものです。
-                    - 数値が高いほど安全です。一般的に **2.0以上** が優良な基準とされます。
-                    - 資産のボラティリティ（変動幅）が大きいほど、DDは短くなり（危険）、倒産リスクが高まります。
+                    企業の資産価値が、負債（融資額）の支払境界線からどれだけ離れているかを「標準偏差」の単位で表したもの。
+                    - 数値が高いほど安全。一般的に **2.0以上** が優良基準。
 
                     **2. デフォルト確率 (Expected Default Frequency: EDF)**
-                    マートン・モデルに基づき、将来的に企業の資産価値が負債額を下回る確率を算出したものです。
-                    - 上図の赤色の領域がEDFに該当します。
-                    - AI予測値とこのEDFを比較することで、統計的な観点とAI的な観点の両方からリスクを評価できます。
+                    マートン・モデルに基づき、将来的に企業の資産価値が負債額を下回る確率。
+                    - 上図の赤色の領域がEDF。
                     """)
 
                 st.divider()
@@ -318,8 +315,8 @@ if st.session_state.clicked:
                 fig3, ax3 = plt.subplots(figsize=(10, 4))
                 ax3.plot(sim_rates, sim_probs, '-o', color="#0078D4", linewidth=2)
                 ax3.axvline(x=rate, color='red', linestyle='--')
-                ax3.set_xlabel("金利 (%)")
-                ax3.set_ylabel("完済期待値 (%)")
+                ax3.set_xlabel("Interest Rate (%)")
+                ax3.set_ylabel("Expected Success (%)")
                 st.pyplot(fig3)
 
         except Exception as e:
