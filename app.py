@@ -250,6 +250,16 @@ if st.session_state.clicked:
                 display_imp['影響度(%)'] = (display_imp['raw'] / display_imp['raw'].sum() * 100).round(1)
                 st.table(display_imp.sort_values('影響度(%)', ascending=False).set_index('項目名')[['影響度(%)']])
 
+            # --- 類似事例の復活 ---
+                st.divider()
+                st.write("### 👥 条件が近い過去の事例（上位5件）")
+                display_similar = similar_cases.head(5).copy()
+                display_similar['状況'] = display_similar['LoanStatus'].map({0: "✅ 完済", 1: "❌ 不履行"})
+                display_similar = display_similar.rename(columns=name_map)
+                st.dataframe(display_similar[[name_map[c] for c in ["GrossApproval", "InitialInterestRate", "TermInMonths"]] + ["状況"]], use_container_width=True)
+
+                st.divider()
+
             else:
                 # 高度解析 (裏面)
                 st.header("🔬 高度数理エビデンス解析")
@@ -285,6 +295,19 @@ if st.session_state.clicked:
                     ax2.fill_between(x, y, where=(x < -dd), color='red', alpha=0.5)
                     ax2.axvline(-dd, color='red', linestyle='--')
                     st.pyplot(fig2)
+                    # --- デフォルト確率と倒産距離の説明 ---
+                with st.expander("📚 専門用語の解説：デフォルト確率と倒産距離", expanded=True):
+                    st.write("""
+                    **1. 倒産距離 (Distance to Default: DD)**
+                    企業の資産価値が、負債（融資額）の支払境界線からどれだけ離れているかを「標準偏差」の単位で表したものです。
+                    - 数値が高いほど安全です。一般的に **2.0以上** が優良な基準とされます。
+                    - 資産のボラティリティ（変動幅）が大きいほど、DDは短くなり（危険）、倒産リスクが高まります。
+
+                    **2. デフォルト確率 (Expected Default Frequency: EDF)**
+                    マートン・モデルに基づき、将来的に企業の資産価値が負債額を下回る確率を算出したものです。
+                    - 上図の赤色の領域がEDFに該当します。
+                    - AI予測値とこのEDFを比較することで、統計的な観点とAI的な観点の両方からリスクを評価できます。
+                    """)
 
                 st.divider()
 
