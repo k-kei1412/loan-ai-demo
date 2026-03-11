@@ -297,3 +297,5 @@ if submit:
             ax3.grid(True, alpha=0.3)
             ax3.legend()
             st.pyplot(fig3)
+        except Exception as e:
+            st.error(f"分析エラー: {e}")
