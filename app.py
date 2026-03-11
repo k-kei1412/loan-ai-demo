@@ -161,6 +161,7 @@ if submit:
             final_expected_success = max(5.0, min(98.5, (1.0 - combined_risk) * 100))
 
             # --- D. 表示セクション (警告・判定) ---
+        if app_mode == "総合報告 (表面)":
             st.subheader("🏁 総合審査報告書")
             st.write("### 🔍 実務者への重点確認事項")
             
@@ -234,7 +235,7 @@ if submit:
             st.table(display_imp.sort_values('影響度(%)', ascending=False).set_index('項目名')[['影響度(%)']])
 
             # --- 高度解析 (裏面) ---
-            # --- 高度解析 (裏面) ---
+        else
             st.header("🔬 高度数理エビデンス解析")
             
             # 1. SHAP解析 (横棒・反転・文字化け完全対策)
