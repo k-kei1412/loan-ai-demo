@@ -70,6 +70,13 @@ def get_japanese_sector(en_text):
         if k in text: return v
     return en_text
 
+# --- 状態維持のためのセッション初期化 ---
+if "clicked" not in st.session_state:
+    st.session_state.clicked = False
+
+def click_button():
+    st.session_state.clicked = True
+
 # --- サイドバー入力 ---
 st.sidebar.header("📋 申請者情報入力")
 app_mode = st.sidebar.radio("📊 表示モード切替", ["総合報告 (表面)", "高度解析 (裏面)"])
@@ -92,10 +99,12 @@ with st.sidebar:
 
     collateral = st.selectbox("担保の有無", ["あり (Y)", "なし (N)"])
     collateral_val = "Y" if "あり" in collateral else "N"
-    submit = st.button("精密クロス審査を開始")
+    
+    # コールバック関数をボタンに紐付け
+    submit = st.button("精密クロス審査を開始", on_click=click_button)
 
-# 4. 分析ロジック
-if submit:
+# 4. 分析ロジック (判定条件を session_state に変更)
+if st.session_state.clicked:
     if train_df.empty:
         st.error("学習データが見つかりません。")
     else:
@@ -141,9 +150,7 @@ if submit:
 
             # --- C. 数値正常化ロジック (金融実務最適化) ---
             strict_proba = np.clip(raw_proba, 0.01, 0.99)
-            # 期間上限の計算
             dynamic_ceil = 84 + (min(gross, 2000000) / 2000000) * 36
-            # 期間の影響を対数でマイルドに評価
             term_gap = max(0.0, (np.log1p(term) - np.log1p(dynamic_ceil))) * 2.0 if term > dynamic_ceil else 0.0
 
             gross_risk = 0.0
@@ -160,17 +167,11 @@ if submit:
             combined_risk = (base_risk_idx * sba_offset) + term_gap + gross_risk + rate_risk
             final_expected_success = max(5.0, min(98.5, (1.0 - combined_risk) * 100))
 
-           # --- (前略：インポートから分析ロジックの数値計算部分までは同じ) ---
-            # ここまでで combined_risk などの計算が終わっている前提
-
-            # ==========================================
-            # 5. 表示ロジック（ここを try の中に入れます）
-            # ==========================================
+            # 5. 表示ロジック
             if app_mode == "総合報告 (表面)":
                 st.subheader("🏁 総合審査報告書")
                 st.write("### 🔍 実務者への重点確認事項")
                 
-                # 判定ロジック
                 if gross >= 1000000:
                     status = "危険"
                     st.error("🚨 **【最重要精査案件】** 融資額が $1M を超過。役員承認が必須。")
@@ -180,7 +181,6 @@ if submit:
                 else:
                     status = "安全" if final_expected_success > 92 else "注意" if final_expected_success > 75 else "危険"
 
-                # 警告・通知
                 if sba_bonus_flag:
                     st.success(f"🛡️ **【保全インセンティブ適用】** 保証率80%超により高額融資リスクを50%軽減。")
                 if 500000 <= gross < 1000000:
@@ -188,7 +188,6 @@ if submit:
                 if term > dynamic_ceil:
                     st.warning(f"⏳ **【期間超過】** 適正上限（{int(dynamic_ceil)}ヶ月）を超過。")
 
-                # メトリクス表示
                 c1, c2, c3 = st.columns(3)
                 with c1:
                     st.metric("実効リスク指数", f"{combined_risk * 100:.2f} %")
@@ -211,7 +210,6 @@ if submit:
                 with c3:
                     st.metric("完済期待値 (実務評価)", f"{final_expected_success:.1f} %")
 
-                # 改善アクション
                 st.write("### 💡 審査改善へのアクション案")
                 with st.expander("アドバイスの詳細を確認する", expanded=True):
                     advice = []
@@ -222,7 +220,6 @@ if submit:
                     else:
                         for a in advice: st.write(a)
 
-                # 判断要素テーブル
                 st.divider()
                 st.write("### ⚖️ 判断に影響した主要要素")
                 importances = model.get_feature_importance()
@@ -235,12 +232,9 @@ if submit:
                 st.table(display_imp.sort_values('影響度(%)', ascending=False).set_index('項目名')[['影響度(%)']])
 
             else:
-                # ==========================================
                 # 高度解析 (裏面)
-                # ==========================================
                 st.header("🔬 高度数理エビデンス解析")
                 
-                # SHAP解析
                 st.write("#### ⚖️ AIの判断根拠 (SHAP Waterfall)")
                 explainer = shap.TreeExplainer(model)
                 shap_values = explainer(input_df)
@@ -254,7 +248,6 @@ if submit:
                 
                 st.divider()
 
-                # マートン・モデル
                 st.write("#### 📉 理論的倒産距離 (Merton Model)")
                 vol = st.slider("想定資産ボラティリティ (%)", 10, 100, 30) / 100
                 asset = float(gross) * 1.5
@@ -276,7 +269,6 @@ if submit:
 
                 st.divider()
 
-                # 金利感度
                 st.write("#### 🧪 金利感度シミュレーション")
                 sim_rates = np.linspace(5.0, 30.0, 15)
                 sim_probs = [100 * (1 - model.predict_proba(Pool(input_df.assign(InitialInterestRate=r), cat_features=cat_idx))[0][1]) for r in sim_rates]
