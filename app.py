@@ -320,6 +320,28 @@ if st.session_state.clicked:
                     fig2, ax2 = plt.subplots(figsize=(6, 3))
                     ax2.plot(x, y, color="gray"); ax2.fill_between(x, y, where=(x < -dd), color='red', alpha=0.5)
                     st.pyplot(fig2)
+                    
+                with st.expander("📚 専門用語の解説：デフォルト確率と倒産距離", expanded=True):
+                    st.write("""
+                    **1. 倒産距離 (Distance to Default: DD)**
+                    企業の資産価値が、負債（融資額）の支払境界線からどれだけ離れているかを「標準偏差」の単位で表したもの。
+                    - 数値が高いほど安全。一般的に **2.0以上** が優良基準。
+
+                    **2. デフォルト確率 (Expected Default Frequency: EDF)**
+                    マートン・モデルに基づき、将来的に企業の資産価値が負債額を下回る確率。
+                    - 上図の赤色の領域がEDF。
+                    """)
+
+                st.divider()
+                st.write("#### 🧪 金利感度シミュレーション")
+                sim_rates = np.linspace(5.0, 30.0, 15)
+                sim_probs = [100 * (1 - model.predict_proba(Pool(input_df.assign(InitialInterestRate=r), cat_features=cat_idx))[0][1]) for r in sim_rates]
+                fig3, ax3 = plt.subplots(figsize=(10, 4))
+                ax3.plot(sim_rates, sim_probs, '-o', color="#0078D4", linewidth=2)
+                ax3.axvline(x=rate, color='red', linestyle='--')
+                ax3.set_xlabel("Interest Rate (%)")
+                ax3.set_ylabel("Expected Success (%)")
+                st.pyplot(fig3)
 
         except Exception as e:
             st.error(f"分析エラー: {e}")
