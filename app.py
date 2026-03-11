@@ -253,13 +253,49 @@ if st.session_state.clicked:
                 display_imp['影響度(%)'] = (display_imp['raw'] / display_imp['raw'].sum() * 100).round(1)
                 st.table(display_imp.sort_values('影響度(%)', ascending=False).set_index('項目名')[['影響度(%)']])
 
+                # --- 類似事例テーブルの強化（ハイライト・比較機能追加） ---
                 st.divider()
-                st.write("### 👥 条件が近い過去の事例（上位100件）")
+                st.write("### 👥 条件が近い過去の事例（比較解析）")
+                st.caption("※ **赤背景の行**は不履行（貸し倒れ）事例です。最上段の**青い行**が今回の入力条件です。")
+
+                # 1. 比較用の「今回データ」を作成（最上段用）
+                current_row = pd.DataFrame({
+                    "状況": ["⭐ 今回の申請条件"],
+                    "融資額": [f"${gross:,}"],
+                    "金利": [f"{rate}%"],
+                    "返済期間": [f"{term}ヶ月"],
+                    "LoanStatus": [-1]  # 識別のための特殊フラグ
+                })
+
+                # 2. 過去の類似事例データの整形
                 display_similar = similar_cases.head(100).copy()
                 display_similar['状況'] = display_similar['LoanStatus'].map({0: "✅ 完済", 1: "❌ 不履行"})
-                display_similar = display_similar.rename(columns=table_name_map)
-                st.dataframe(display_similar[[table_name_map[c] for c in ["GrossApproval", "InitialInterestRate", "TermInMonths"]] + ["状況"]], use_container_width=True)
+                display_similar['融資額'] = display_similar['GrossApproval'].map(lambda x: f"${x:,.0f}")
+                display_similar['金利'] = display_similar['InitialInterestRate'].map(lambda x: f"{x}%")
+                display_similar['返済期間'] = display_similar['TermInMonths'].map(lambda x: f"{x}ヶ月")
 
+                # 3. 今回の条件と過去事例を結合
+                merged_display = pd.concat([current_row, display_similar[["状況", "融資額", "金利", "返済期間", "LoanStatus"]]], ignore_index=True)
+
+                # 4. スタイリング関数の定義
+                def highlight_loan_status(row):
+                    # 今回の申請条件（青色）
+                    if row.LoanStatus == -1:
+                        return ['background-color: #e1f5fe; color: #01579b; font-weight: bold'] * len(row)
+                    # 不履行事例（薄い赤色）
+                    elif row.LoanStatus == 1:
+                        return ['background-color: #ffebee; color: #c62828'] * len(row)
+                    # 完済事例（通常）
+                    return [''] * len(row)
+
+                # 5. スタイルを適用して表示
+                styled_df = merged_display.drop(columns="LoanStatus").style.apply(highlight_loan_status, axis=1)
+                
+                st.dataframe(
+                    styled_df, 
+                    use_container_width=True, 
+                    height=450  # 100件見やすいように高さを調整
+                )
             else:
                 # 高度解析 (裏面)
                 st.header("🔬 高度数理エビデンス解析")
