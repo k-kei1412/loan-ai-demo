@@ -322,18 +322,18 @@ if st.session_state.clicked:
                     st.pyplot(fig2)
                     import pandas as pd
 
-                # 業界ボラティリティデータの作成
-                vix_data = {
-                    "産業セクター": ["インフラ（電気・ガス）", "食料品・医薬品", "製造業・建設業", "小売・飲食業", "情報通信・IT", "スタートアップ"],
-                    "平均ボラティリティ": ["15% - 20%", "20% - 25%", "25% - 35%", "35% - 45%", "45% - 60%", "70%以上"],
-                    "リスク評価": ["極めて安定", "安定", "標準", "やや高い", "高い", "極めて高い"]
+                # 業種ごとの標準ボラティリティ辞書
+                sector_vix_map = {
+                    "utilities": 18, "public": 18, "health": 20,
+                    "finance": 23, "agriculture": 23, "educational": 25,
+                    "manufacturing": 30, "construction": 30, "wholesale": 30,
+                    "retail": 40, "accommodation": 45, "information": 55,
+                    # ...残りの業種も設定
                 }
-                df_vix = pd.DataFrame(vix_data)
                 
-                # Streamlitでの表示
-                with st.expander("💡 業界別ボラティリティの目安（参考）"):
-                    st.table(df_vix)
-                    st.caption("※この数値は一般的な市場データに基づく目安です。企業の個別事情により前後します。")
+                # サイドバーで選ばれた英語キーをもとに標準値を取得
+                standard_vix = sector_vix_map.get(selected_sector_key, 30)
+                st.sidebar.info(f"💡 この業界の標準ボラティリティは {standard_vix}% です")
                     
                 with st.expander("📚 専門用語の解説：デフォルト確率と倒産距離", expanded=True):
                     st.write("""
