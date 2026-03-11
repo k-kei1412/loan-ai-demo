@@ -322,19 +322,23 @@ if st.session_state.clicked:
                     st.pyplot(fig2)
                     import pandas as pd
 
-                # 業種ごとの標準ボラティリティ辞書
+                # 1. すべての業種に対応した標準ボラティリティの定義
                 sector_vix_map = {
-                    "utilities": 18, "public": 18, "health": 20,
-                    "finance": 23, "agriculture": 23, "educational": 25,
-                    "manufacturing": 30, "construction": 30, "wholesale": 30,
-                    "retail": 40, "accommodation": 45, "information": 55,
-                    # ...残りの業種も設定
+                    "accommodation": 45, "administrative": 40, "agriculture": 23, 
+                    "arts": 50, "construction": 30, "educational": 25,
+                    "finance": 23, "health": 20, "information": 55, 
+                    "management": 60, "manufacturing": 30, "mining": 30,
+                    "professional": 45, "public": 18, "real estate": 40, 
+                    "retail": 40, "transportation": 30, "utilities": 18, "wholesale": 30
                 }
                 
-                # サイドバーで選ばれた英語キーをもとに標準値を取得
-                standard_vix = sector_vix_map.get(selected_sector_key, 30)
-                st.sidebar.info(f"💡 この業界の標準ボラティリティは {standard_vix}% です")
-                    
+                # 2. セクターを選択する部分（お手元の変数名に合わせてください）
+                # もし st.sidebar.selectbox("産業セクター", sectors.keys()) としているなら：
+                selected_key = st.sidebar.selectbox("産業セクター", list(sectors.keys()), format_func=lambda x: sectors[x])
+                
+                # 3. 標準値の取得と表示
+                standard_vix = sector_vix_map.get(selected_key, 30)
+                st.sidebar.info(f"💡 この業界の標準ボラティリティは **{standard_vix}%** です")
                 with st.expander("📚 専門用語の解説：デフォルト確率と倒産距離", expanded=True):
                     st.write("""
                     **1. 倒産距離 (Distance to Default: DD)**
