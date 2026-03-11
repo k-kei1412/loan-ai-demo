@@ -131,7 +131,7 @@ if st.session_state.clicked:
         try:
             current_sba_ratio = sba / gross if gross > 0 else 0
             
-            # 入力データを拡充
+            # --- 入力データの構築 ---
             input_data = {
                 "GrossApproval": float(gross), "SBAGuaranteedApproval": float(sba),
                 "InitialInterestRate": float(rate), "TermInMonths": float(term),
@@ -145,38 +145,58 @@ if st.session_state.clicked:
             for col in expected_features:
                 if col not in input_df.columns: input_df[col] = 0.0
             input_df = input_df[expected_features]
+            
             cat_idx = [i for i, col in enumerate(input_df.columns) if input_df[col].dtype == 'object']
-            raw_proba = model.predict_proba(Pool(input_df, cat_features=cat_idx))[0][1]
+            
+            # モデル予測の安全実行
+            preds = model.predict_proba(Pool(input_df, cat_features=cat_idx))
+            raw_proba = preds[0][1] if len(preds) > 0 else 0.5
 
-            # 類似事例検索
+            # --- 類似事例検索（エラー対策強化版） ---
             search_pool = train_df[train_df['NaicsSector'] == sector_en].copy()
-            if len(search_pool) < 100: search_pool = train_df.copy()
+            # 検索対象が少なすぎる場合は全データから探す（インデックスエラー防止）
+            if len(search_pool) < 10: 
+                search_pool = train_df.copy()
+            
             search_features = ["GrossApproval", "InitialInterestRate", "TermInMonths", "SBA_Ratio"]
             train_num = search_pool[search_features].fillna(0).copy()
             train_num["TermInMonths"] = np.log1p(train_num["TermInMonths"])
+            
             input_num = input_df[["GrossApproval", "InitialInterestRate", "TermInMonths"]].copy()
             input_num["TermInMonths"] = np.log1p(input_num["TermInMonths"])
             input_num["SBA_Ratio"] = current_sba_ratio
+            
             scaler = StandardScaler()
             weights = np.array([1.2, 1.0, 1.5, 2.0]) 
             train_scaled = scaler.fit_transform(train_num) * weights
             input_scaled = scaler.transform(input_num) * weights
-            nn = NearestNeighbors(n_neighbors=min(100, len(search_pool)))
+            
+            # 近傍点数の安全な決定
+            n_neighbors_val = min(100, len(search_pool))
+            nn = NearestNeighbors(n_neighbors=n_neighbors_val)
             nn.fit(train_scaled)
-            _, indices = nn.kneighbors(input_scaled)
-            similar_cases = search_pool.iloc[indices[0]].copy()
-            risk_pct = similar_cases['LoanStatus'].mean() * 100
-            def_count = int(similar_cases['LoanStatus'].sum())
+            distances, indices = nn.kneighbors(input_scaled)
+            
+            # インデックス参照の安全ガード
+            if len(indices) > 0 and len(indices[0]) > 0:
+                similar_cases = search_pool.iloc[indices[0]].copy()
+                risk_pct = similar_cases['LoanStatus'].mean() * 100
+                def_count = int(similar_cases['LoanStatus'].sum())
+            else:
+                risk_pct, def_count = 0, 0
+                similar_cases = pd.DataFrame()
 
-            # リスク指標計算
+            # --- リスク指標・ロジック計算 ---
             strict_proba = np.clip(raw_proba, 0.01, 0.99)
             dynamic_ceil = 84 + (min(gross, 2000000) / 2000000) * 36
             term_gap = max(0.0, (np.log1p(term) - np.log1p(dynamic_ceil))) * 2.0 if term > dynamic_ceil else 0.0
-            gross_risk = 0.0
+            
             sba_bonus_flag = (current_sba_ratio >= 0.80)
+            gross_risk = 0.0
             if gross >= 1000000: gross_risk = 0.40 + (gross - 1000000) / 1000000
             elif gross > 500000: gross_risk = ((gross - 500000) // 100000) * 0.04
             if sba_bonus_flag: gross_risk *= 0.5
+            
             rate_risk = max(0, (rate - 18.0) / 10.0) * 0.3 + (0.1 if rate > 20.0 else 0)
             base_risk_idx = (strict_proba * 0.4) + (risk_pct / 100 * 0.6)
             sba_offset = 0.65 if current_sba_ratio >= 0.75 else 0.85 if current_sba_ratio >= 0.50 else 1.0
@@ -187,44 +207,70 @@ if st.session_state.clicked:
                 st.subheader("🏁 総合審査報告書")
                 st.write("### 🔍 実務者への重点確認事項")
                 
-                # 判定ロジック
+                # --- A. 警告メッセージ・判定（完全復活） ---
+                warnings = []
                 if gross >= 1000000:
                     status = "危険"
                     st.error("🚨 **【最重要精査案件】** 融資額が $1M を超過。役員承認が必須。")
+                    warnings.append("・100万ドル超の高額融資")
                 elif gross >= 500000 and rate >= 20.0 and not sba_bonus_flag:
                     status = "注意"
                     st.error("💀 **【複合リスク】** 高額かつ高金利。80%以上の保証がないため警戒。")
+                    warnings.append("・高額かつ高金利の無防備案件")
                 else:
                     status = "安全" if final_expected_success > 92 else "注意" if final_expected_success > 75 else "危険"
 
-                # メトリクス表示
+                # 個別アラート
+                if sba_bonus_flag:
+                    st.success(f"🛡️ **【保全インセンティブ適用】** 保証率80%超により高額融資リスクを50%軽減。")
+                if 500000 <= gross < 1000000:
+                    st.info(f"📂 **【中規模案件】** 50万ドル超の中堅企業向け融資。リスク加重適用中。")
+                if term > dynamic_ceil:
+                    st.warning(f"⏳ **【期間超過】** 適正上限（{int(dynamic_ceil)}ヶ月）を超過。デフォルト確率が上昇傾向。")
+                    warnings.append("・返済期間の超過")
+                if b_age_val == "New Business or less than 2 years old":
+                    st.warning(f"🌱 **【新規事業リスク】** 創業2年未満。キャッシュフローの安定性を要確認。")
+                    warnings.append("・新規事業（業歴2年未満）")
+
+                # --- B. メトリクス表示 ---
                 c1, c2, c3 = st.columns(3)
                 with c1:
                     st.metric("実効リスク指数", f"{combined_risk * 100:.2f} %")
                     if status == "安全": st.success("総合判定: ✅ 安全")
                     elif status == "注意": st.warning("総合判定: ⚠️ 注意")
-                    else: st.error("総合判定: 🚨 危険")
+                    else: st.error("総合判定: 🚨 危険 (要精査)")
+                    for w in warnings: st.caption(f":orange[{w}]" if status == "注意" else f":red[{w}]")
+
                 with c2:
                     st.metric(f"実績事故率 (類似100件)", f"{risk_pct:.1f} %")
+                    st.markdown(f"🔍 うち不履行事例: **{def_count}件**")
                 with c3:
                     st.metric("完済期待値 (実務評価)", f"{final_expected_success:.1f} %")
 
+                # --- C. 審査改善へのアクション案（完全復活） ---
+                st.write("### 💡 審査改善へのアクション案")
+                with st.expander("アドバイスの詳細を確認する", expanded=True):
+                    advice = []
+                    if gross >= 1000000: advice.append("⚠️ **金額の再検討**: 可能であれば分割融資または担保の積み増しを検討してください。")
+                    if term > dynamic_ceil: advice.append(f"✅ **期間の最適化**: {int(dynamic_ceil)}ヶ月以下への短縮により、リスク指数が大幅に改善します。")
+                    if current_sba_ratio < 0.80: advice.append("✅ **保証枠の拡大**: SBA保証を80%以上に引き上げると、内部リスク加重が緩和されます。")
+                    if b_age_val == "New Business or less than 2 years old": advice.append("📊 **補足資料**: 創業計画書および今後3年間の収支予測の厳密な精査を推奨。")
+                    
+                    if not advice: st.write("✨ 現在の条件は論理的に非常に安定しています。")
+                    else:
+                        for a in advice: st.write(a)
+
+                # --- D. 主要要素（日本語） ---
                 st.divider()
                 st.write("### ⚖️ 判断に影響した主要要素")
-                # 影響度の算出と日本語化
                 importances = model.get_feature_importance()
                 imp_df = pd.DataFrame({'項目': expected_features, 'raw': importances})
-                
-                # 英語項目名を日本語名へマッピング（ここで修正）
                 imp_df['項目名'] = imp_df['項目'].map(lambda x: table_name_map.get(x, x))
-                
                 display_imp = imp_df.groupby('項目名')['raw'].sum().reset_index()
                 display_imp['影響度(%)'] = (display_imp['raw'] / display_imp['raw'].sum() * 100).round(1)
-                
-                # 日本語名になったテーブルを表示
                 st.table(display_imp.sort_values('影響度(%)', ascending=False).set_index('項目名')[['影響度(%)']])
 
-                # 類似事例（ハイライト版）
+                # --- E. 類似事例テーブル ---
                 st.divider()
                 st.write("### 👥 条件が近い過去の事例（比較解析）")
                 current_row = pd.DataFrame({"状況": ["⭐ 今回の申請条件"], "融資額": [f"${gross:,}"], "金利": [f"{rate}%"], "返済期間": [f"{term}ヶ月"], "LoanStatus": [-1]})
@@ -239,7 +285,6 @@ if st.session_state.clicked:
                     if row['LoanStatus'] == -1: return ['background-color: #e1f5fe; font-weight: bold'] * len(row)
                     elif row['LoanStatus'] == 1: return ['background-color: #ffebee; color: #c62828'] * len(row)
                     return [''] * len(row)
-
                 st.dataframe(merged_display.style.apply(style_row, axis=1), column_order=("状況", "融資額", "金利", "返済期間"), use_container_width=True)
 
             else:
@@ -249,8 +294,6 @@ if st.session_state.clicked:
                 explainer = shap.TreeExplainer(model)
                 shap_values = explainer(input_df)
                 shap_values.values = -shap_values.values 
-                
-                # グラフ用英語名適用
                 shap_values.feature_names = [graph_name_map.get(n, n) for n in expected_features]
                 
                 fig, ax = plt.subplots(figsize=(10, 6))
@@ -261,10 +304,8 @@ if st.session_state.clicked:
                 plt.xlabel("Contribution to Full Repayment")
                 st.pyplot(plt.gcf(), clear_figure=True)
                 
-                # Mertonモデルなどはそのまま維持
                 st.divider()
                 st.write("#### 📉 理論的倒産距離 (Merton Model)")
-                # ...（以下、既存のMertonモデルおよび金利感度シミュレーション）
                 vol = st.slider("想定資産ボラティリティ (%)", 10, 100, 30) / 100
                 asset = float(gross) * 1.5
                 t_m = float(term) / 12
