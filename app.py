@@ -1,3 +1,4 @@
+# --- 前半のインポートと基本設定はそのまま ---
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -24,6 +25,28 @@ def set_japanese_font():
     plt.rcParams['axes.unicode_minus'] = False 
 
 set_japanese_font()
+
+# --- 業界定義（解析でも使うため共通変数として定義） ---
+sectors_map = {
+    "accommodation": "宿泊・飲食サービス業", "administrative": "運営支援・廃棄物処理",
+    "agriculture": "農業・林業・漁業", "arts": "芸術・娯楽・レクリエーション",
+    "construction": "建設業", "educational": "教育サービス業",
+    "finance": "金融業・保険業", "health": "医療・福祉",
+    "information": "情報通信業", "management": "企業管理・持株会社",
+    "manufacturing": "製造業", "mining": "採鉱・石油ガス採掘",
+    "professional": "専門・科学・技術サービス", "public": "公務",
+    "real estate": "不動産・賃貸業", "retail": "小売業",
+    "transportation": "運輸業・倉庫業", "utilities": "公益事業", "wholesale": "卸売業"
+}
+
+sector_vix_map = {
+    "accommodation": 45, "administrative": 40, "agriculture": 23, 
+    "arts": 50, "construction": 30, "educational": 25,
+    "finance": 23, "health": 20, "information": 55, 
+    "management": 60, "manufacturing": 30, "mining": 30,
+    "professional": 45, "public": 18, "real estate": 40, 
+    "retail": 40, "transportation": 30, "utilities": 18, "wholesale": 30
+}
 
 # 2. リソース読み込み
 @st.cache_resource
@@ -60,18 +83,7 @@ table_name_map = {
 def get_japanese_sector(en_text):
     text = str(en_text).lower()
     if "other" in text: return "その他サービス業"
-    sectors = {
-        "accommodation": "宿泊・飲食サービス業", "administrative": "運営支援・廃棄物処理",
-        "agriculture": "農業・林業・漁業", "arts": "芸術・娯楽・レクリエーション",
-        "construction": "建設業", "educational": "教育サービス業",
-        "finance": "金融業・保険業", "health": "医療・福祉",
-        "information": "情報通信業", "management": "企業管理・持株会社",
-        "manufacturing": "製造業", "mining": "採鉱・石油ガス採掘",
-        "professional": "専門・科学・技術サービス", "public": "公務",
-        "real estate": "不動産・賃貸業", "retail": "小売業",
-        "transportation": "運輸業・倉庫業", "utilities": "公益事業", "wholesale": "卸売業"
-    }
-    for k, v in sectors.items():
+    for k, v in sectors_map.items():
         if k in text: return v
     return en_text
 
@@ -81,40 +93,44 @@ if "clicked" not in st.session_state:
 def click_button():
     st.session_state.clicked = True
 
-# --- サイドバー入力（項目を大幅拡充） ---
+# --- サイドバー入力 ---
 st.sidebar.header("📋 申請者情報入力")
 app_mode = st.sidebar.radio("📊 表示モード切替", ["総合報告 (表面)", "高度解析 (裏面)"])
 
 with st.sidebar:
     st.divider()
-    # 既存の基本項目
     gross = st.number_input("融資額 ($)", 0, 10000000, 500000)
     sba = st.number_input("保証額 ($)", 0, 10000000, 300000)
     rate = st.number_input("金利 (%)", 0.0, 35.0, 15.0)
     term = st.number_input("返済期間 (月)", 1, 360, 84)
     
-    # 追加項目：事業歴
     b_age = st.selectbox("事業歴", ["2年以上 (Existing)", "2年未満 (New Business)"])
     b_age_val = "Existing or more than 2 years old" if "2年以上" in b_age else "New Business or less than 2 years old"
     
-    # 追加項目：法人形態
     b_type = st.selectbox("法人形態", ["株式会社 (CORPORATION)", "個人事業主 (INDIVIDUAL)", "パートナーシップ (PARTNERSHIP)"])
     b_type_val = b_type.split("(")[1].replace(")", "")
     
-    # セクター
+    # 産業セクターの選択（修正ポイント：一箇所に統合）
     if not train_df.empty:
         unique_en_sectors = sorted(train_df['NaicsSector'].unique())
         display_options = [get_japanese_sector(s) for s in unique_en_sectors]
         selected_jp = st.selectbox("産業セクター", options=display_options)
         sector_en = unique_en_sectors[display_options.index(selected_jp)]
+        
+        # 選択された業種の英語キーを逆引きして標準値を表示
+        vix_key = ""
+        for k, v in sectors_map.items():
+            if v == selected_jp:
+                vix_key = k
+                break
+        
+        standard_vix = sector_vix_map.get(vix_key, 30)
+        st.info(f"💡 この業界の標準ボラティリティは **{standard_vix}%** です")
     else:
         sector_en = "Finance_insurance"
         st.selectbox("産業セクター", options=["データ未読み込み"])
 
-    # 追加項目：雇用数
     jobs = st.slider("現在の雇用員数", 0, 500, 5)
-    
-    # 追加項目：金利タイプ
     rate_type = st.radio("金利タイプ", ["変動金利 (V)", "固定金利 (F)"])
     rate_type_val = "V" if "変動" in rate_type else "F"
 
@@ -147,14 +163,11 @@ if st.session_state.clicked:
             input_df = input_df[expected_features]
             
             cat_idx = [i for i, col in enumerate(input_df.columns) if input_df[col].dtype == 'object']
-            
-            # モデル予測の安全実行
             preds = model.predict_proba(Pool(input_df, cat_features=cat_idx))
             raw_proba = preds[0][1] if len(preds) > 0 else 0.5
 
-            # --- 類似事例検索（エラー対策強化版） ---
+            # --- 類似事例検索 ---
             search_pool = train_df[train_df['NaicsSector'] == sector_en].copy()
-            # 検索対象が少なすぎる場合は全データから探す（インデックスエラー防止）
             if len(search_pool) < 10: 
                 search_pool = train_df.copy()
             
@@ -171,13 +184,11 @@ if st.session_state.clicked:
             train_scaled = scaler.fit_transform(train_num) * weights
             input_scaled = scaler.transform(input_num) * weights
             
-            # 近傍点数の安全な決定
             n_neighbors_val = min(100, len(search_pool))
             nn = NearestNeighbors(n_neighbors=n_neighbors_val)
             nn.fit(train_scaled)
             distances, indices = nn.kneighbors(input_scaled)
             
-            # インデックス参照の安全ガード
             if len(indices) > 0 and len(indices[0]) > 0:
                 similar_cases = search_pool.iloc[indices[0]].copy()
                 risk_pct = similar_cases['LoanStatus'].mean() * 100
@@ -204,10 +215,10 @@ if st.session_state.clicked:
             final_expected_success = max(5.0, min(98.5, (1.0 - combined_risk) * 100))
 
             if app_mode == "総合報告 (表面)":
+                # --- 表面の表示内容はそのまま ---
                 st.subheader("🏁 総合審査報告書")
                 st.write("### 🔍 実務者への重点確認事項")
                 
-                # --- A. 警告メッセージ・判定（完全復活） ---
                 warnings = []
                 if gross >= 1000000:
                     status = "危険"
@@ -220,7 +231,6 @@ if st.session_state.clicked:
                 else:
                     status = "安全" if final_expected_success > 92 else "注意" if final_expected_success > 75 else "危険"
 
-                # 個別アラート
                 if sba_bonus_flag:
                     st.success(f"🛡️ **【保全インセンティブ適用】** 保証率80%超により高額融資リスクを50%軽減。")
                 if 500000 <= gross < 1000000:
@@ -232,7 +242,6 @@ if st.session_state.clicked:
                     st.warning(f"🌱 **【新規事業リスク】** 創業2年未満。キャッシュフローの安定性を要確認。")
                     warnings.append("・新規事業（業歴2年未満）")
 
-                # --- B. メトリクス表示 ---
                 c1, c2, c3 = st.columns(3)
                 with c1:
                     st.metric("実効リスク指数", f"{combined_risk * 100:.2f} %")
@@ -240,14 +249,12 @@ if st.session_state.clicked:
                     elif status == "注意": st.warning("総合判定: ⚠️ 注意")
                     else: st.error("総合判定: 🚨 危険 (要精査)")
                     for w in warnings: st.caption(f":orange[{w}]" if status == "注意" else f":red[{w}]")
-
                 with c2:
                     st.metric(f"実績事故率 (類似100件)", f"{risk_pct:.1f} %")
                     st.markdown(f"🔍 うち不履行事例: **{def_count}件**")
                 with c3:
                     st.metric("完済期待値 (実務評価)", f"{final_expected_success:.1f} %")
 
-                # --- C. 審査改善へのアクション案（完全復活） ---
                 st.write("### 💡 審査改善へのアクション案")
                 with st.expander("アドバイスの詳細を確認する", expanded=True):
                     advice = []
@@ -260,7 +267,6 @@ if st.session_state.clicked:
                     else:
                         for a in advice: st.write(a)
 
-                # --- D. 主要要素（日本語） ---
                 st.divider()
                 st.write("### ⚖️ 判断に影響した主要要素")
                 importances = model.get_feature_importance()
@@ -270,7 +276,6 @@ if st.session_state.clicked:
                 display_imp['影響度(%)'] = (display_imp['raw'] / display_imp['raw'].sum() * 100).round(1)
                 st.table(display_imp.sort_values('影響度(%)', ascending=False).set_index('項目名')[['影響度(%)']])
 
-                # --- E. 類似事例テーブル ---
                 st.divider()
                 st.write("### 👥 条件が近い過去の事例（比較解析）")
                 current_row = pd.DataFrame({"状況": ["⭐ 今回の申請条件"], "融資額": [f"${gross:,}"], "金利": [f"{rate}%"], "返済期間": [f"{term}ヶ月"], "LoanStatus": [-1]})
@@ -288,7 +293,7 @@ if st.session_state.clicked:
                 st.dataframe(merged_display.style.apply(style_row, axis=1), column_order=("状況", "融資額", "金利", "返済期間"), use_container_width=True)
 
             else:
-                # 高度解析 (裏面)
+                # --- 高度解析 (裏面) ---
                 st.header("🔬 高度数理エビデンス解析")
                 st.write("#### ⚖️ AIの判断根拠 (SHAP Waterfall)")
                 explainer = shap.TreeExplainer(model)
@@ -320,25 +325,16 @@ if st.session_state.clicked:
                     fig2, ax2 = plt.subplots(figsize=(6, 3))
                     ax2.plot(x, y, color="gray"); ax2.fill_between(x, y, where=(x < -dd), color='red', alpha=0.5)
                     st.pyplot(fig2)
-                    import pandas as pd
 
-                # 1. すべての業種に対応した標準ボラティリティの定義
-                sector_vix_map = {
-                    "accommodation": 45, "administrative": 40, "agriculture": 23, 
-                    "arts": 50, "construction": 30, "educational": 25,
-                    "finance": 23, "health": 20, "information": 55, 
-                    "management": 60, "manufacturing": 30, "mining": 30,
-                    "professional": 45, "public": 18, "real estate": 40, 
-                    "retail": 40, "transportation": 30, "utilities": 18, "wholesale": 30
+                # ここに業界ボラティリティ表を追加
+                st.write("##### 📊 業界別ボラティリティの目安（参考）")
+                vix_table_data = {
+                    "産業セクター": ["インフラ", "食料品・医薬", "製造・建設", "小売・飲食", "情報通信・IT", "スタートアップ"],
+                    "平均ボラティリティ": ["15% - 20%", "20% - 25%", "25% - 35%", "35% - 45%", "45% - 60%", "70%以上"],
+                    "リスク評価": ["極めて安定", "安定", "標準", "やや高い", "高い", "極めて高い"]
                 }
-                
-                # 2. セクターを選択する部分（お手元の変数名に合わせてください）
-                # もし st.sidebar.selectbox("産業セクター", sectors.keys()) としているなら：
-                selected_key = st.sidebar.selectbox("産業セクター", list(sectors.keys()), format_func=lambda x: sectors[x])
-                
-                # 3. 標準値の取得と表示
-                standard_vix = sector_vix_map.get(selected_key, 30)
-                st.sidebar.info(f"💡 この業界の標準ボラティリティは **{standard_vix}%** です")
+                st.table(pd.DataFrame(vix_table_data))
+
                 with st.expander("📚 専門用語の解説：デフォルト確率と倒産距離", expanded=True):
                     st.write("""
                     **1. 倒産距離 (Distance to Default: DD)**
