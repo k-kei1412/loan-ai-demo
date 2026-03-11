@@ -100,10 +100,9 @@ with st.sidebar:
     collateral = st.selectbox("担保の有無", ["あり (Y)", "なし (N)"])
     collateral_val = "Y" if "あり" in collateral else "N"
     
-    # コールバック関数をボタンに紐付け
     submit = st.button("精密クロス審査を開始", on_click=click_button)
 
-# 4. 分析ロジック (判定条件を session_state に変更)
+# 4. 分析ロジック
 if st.session_state.clicked:
     if train_df.empty:
         st.error("学習データが見つかりません。")
@@ -111,17 +110,37 @@ if st.session_state.clicked:
         try:
             current_sba_ratio = sba / gross if gross > 0 else 0
             
-            # --- A. AI予測 ---
+            # --- A. AI予測 (エラー回避ロジックを強化) ---
             input_data = {
-                "GrossApproval": float(gross), "SBAGuaranteedApproval": float(sba),
-                "InitialInterestRate": float(rate), "TermInMonths": float(term),
-                "NaicsSector": sector_en, "ApprovalFiscalYear": 2024.0, "Subprogram": "Guaranty",
-                "FixedOrVariableInterestInd": "V", "CongressionalDistrict": 10.0,
-                "BusinessType": "CORPORATION", "BusinessAge": "Existing or more than 2 years old",
-                "RevolverStatus": 0.0, "JobsSupported": 5.0, "CollateralInd": collateral_val
+                "GrossApproval": float(gross), 
+                "SBAGuaranteedApproval": float(sba),
+                "InitialInterestRate": float(rate), 
+                "TermInMonths": float(term),
+                "NaicsSector": str(sector_en), 
+                "ApprovalFiscalYear": 2024.0, 
+                "Subprogram": "Guaranty",
+                "FixedOrVariableInterestInd": "V", 
+                "CongressionalDistrict": 10.0,
+                "BusinessType": "CORPORATION", 
+                "BusinessAge": "Existing or more than 2 years old",
+                "RevolverStatus": 0.0, 
+                "JobsSupported": 5.0, 
+                "CollateralInd": str(collateral_val)
             }
-            input_df = pd.DataFrame([input_data]).reindex(columns=expected_features)
+            
+            # DataFrameを作成し、モデルが期待する全列を確保（不足分は0埋め）
+            input_df = pd.DataFrame([input_data])
+            for col in expected_features:
+                if col not in input_df.columns:
+                    input_df[col] = 0.0
+            
+            # 列の並び順を学習時と完全に一致させる (index out of range 対策)
+            input_df = input_df[expected_features]
+            
+            # カテゴリカル変数のインデックスを再取得
             cat_idx = [i for i, col in enumerate(input_df.columns) if input_df[col].dtype == 'object']
+            
+            # 予測の実行
             raw_proba = model.predict_proba(Pool(input_df, cat_features=cat_idx))[0][1]
 
             # --- B. 類似事例検索 (対数距離補正) ---
@@ -130,7 +149,7 @@ if st.session_state.clicked:
             
             search_features = ["GrossApproval", "InitialInterestRate", "TermInMonths", "SBA_Ratio"]
             train_num = search_pool[search_features].fillna(0).copy()
-            train_num["TermInMonths"] = np.log1p(train_num["TermInMonths"]) # 期間を対数化
+            train_num["TermInMonths"] = np.log1p(train_num["TermInMonths"])
             
             input_num = input_df[["GrossApproval", "InitialInterestRate", "TermInMonths"]].copy()
             input_num["TermInMonths"] = np.log1p(input_num["TermInMonths"])
