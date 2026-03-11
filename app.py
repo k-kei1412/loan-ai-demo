@@ -208,21 +208,32 @@ if st.session_state.clicked:
                 c1, c2, c3 = st.columns(3)
                 with c1:
                     st.metric("実効リスク指数", f"{combined_risk * 100:.2f} %")
+                    reasons = []
+                    if gross >= 1000000: reasons.append("・100万ドル超の高額融資")
+                    if rate >= 20.0: reasons.append("・20%超の高金利")
+                    if term > dynamic_ceil: reasons.append("・返済期間の超過")
+
                     if status == "安全": st.success("総合判定: ✅ 安全")
-                    elif status == "注意": st.warning("総合判定: ⚠️ 注意")
-                    else: st.error("総合判定: 🚨 危険")
+                    elif status == "注意":
+                        st.warning("総合判定: ⚠️ 注意")
+                        for r in reasons: st.caption(f":orange[{r}]")
+                    else:
+                        st.error("総合判定: 🚨 危険 (要精査)")
+                        for r in reasons: st.caption(f":red[{r}]")
+
                 with c2:
                     st.metric(f"実績事故率 (類似100件)", f"{risk_pct:.1f} %")
+                    st.markdown(f"🔍 うち不履行事例: **{def_count}件**")
                 with c3:
                     st.metric("完済期待値 (実務評価)", f"{final_expected_success:.1f} %")
 
                 st.write("### 💡 審査改善へのアクション案")
                 with st.expander("アドバイスの詳細を確認する", expanded=True):
                     advice = []
-                    if gross >= 1000000: advice.append("⚠️ **金額の再検討**: 可能であれば分割融資を。")
-                    if term > dynamic_ceil: advice.append(f"✅ **期間の最適化**: {int(dynamic_ceil)}ヶ月以下へ。")
-                    if current_sba_ratio < 0.80: advice.append("✅ **保証枠の拡大**: 80%以上に引き上げを。")
-                    if not advice: st.write("✨ 現在の条件は非常に安定しています。")
+                    if gross >= 1000000: advice.append("⚠️ **金額の再検討**: 可能であれば分割融資または担保の積み増しを。")
+                    if term > dynamic_ceil: advice.append(f"✅ **期間の最適化**: {int(dynamic_ceil)}ヶ月以下への短縮を推奨。")
+                    if current_sba_ratio < 0.80: advice.append("✅ **保証枠の拡大**: 80%以上に引き上げるとリスク加重が半減します。")
+                    if not advice: st.write("✨ 現在の条件は論理的に非常に安定しています。")
                     else:
                         for a in advice: st.write(a)
 
