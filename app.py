@@ -160,143 +160,130 @@ if submit:
             combined_risk = (base_risk_idx * sba_offset) + term_gap + gross_risk + rate_risk
             final_expected_success = max(5.0, min(98.5, (1.0 - combined_risk) * 100))
 
-            # --- D. 表示セクション (警告・判定) ---
-        if app_mode == "総合報告 (表面)":
-            st.subheader("🏁 総合審査報告書")
-            st.write("### 🔍 実務者への重点確認事項")
-            
-            if gross >= 1000000:
-                status = "危険"
-                st.error("🚨 **【最重要精査案件】** 融資額が $1M を超過。役員承認が必須。")
-            elif gross >= 500000 and rate >= 20.0 and not sba_bonus_flag:
-                status = "注意"
-                st.error("💀 **【複合リスク】** 高額かつ高金利。80%以上の保証がないため警戒。")
+           # --- (前略：インポートから分析ロジックの数値計算部分までは同じ) ---
+            # ここまでで combined_risk などの計算が終わっている前提
+
+            # ==========================================
+            # 5. 表示ロジック（ここを try の中に入れます）
+            # ==========================================
+            if app_mode == "総合報告 (表面)":
+                st.subheader("🏁 総合審査報告書")
+                st.write("### 🔍 実務者への重点確認事項")
+                
+                # 判定ロジック
+                if gross >= 1000000:
+                    status = "危険"
+                    st.error("🚨 **【最重要精査案件】** 融資額が $1M を超過。役員承認が必須。")
+                elif gross >= 500000 and rate >= 20.0 and not sba_bonus_flag:
+                    status = "注意"
+                    st.error("💀 **【複合リスク】** 高額かつ高金利。80%以上の保証がないため警戒。")
+                else:
+                    status = "安全" if final_expected_success > 92 else "注意" if final_expected_success > 75 else "危険"
+
+                # 警告・通知
+                if sba_bonus_flag:
+                    st.success(f"🛡️ **【保全インセンティブ適用】** 保証率80%超により高額融資リスクを50%軽減。")
+                if 500000 <= gross < 1000000:
+                    st.info(f"📂 **【中規模案件】** 50万ドル超。リスク加重適用中。")
+                if term > dynamic_ceil:
+                    st.warning(f"⏳ **【期間超過】** 適正上限（{int(dynamic_ceil)}ヶ月）を超過。")
+
+                # メトリクス表示
+                c1, c2, c3 = st.columns(3)
+                with c1:
+                    st.metric("実効リスク指数", f"{combined_risk * 100:.2f} %")
+                    reasons = []
+                    if gross >= 1000000: reasons.append("・100万ドル超の高額融資")
+                    if rate >= 20.0: reasons.append("・20%超の高金利")
+                    if term > dynamic_ceil: reasons.append("・返済期間の超過")
+
+                    if status == "安全": st.success("総合判定: ✅ 安全")
+                    elif status == "注意":
+                        st.warning("総合判定: ⚠️ 注意")
+                        for r in reasons: st.caption(f":orange[{r}]")
+                    else:
+                        st.error("総合判定: 🚨 危険 (要精査)")
+                        for r in reasons: st.caption(f":red[{r}]")
+
+                with c2:
+                    st.metric(f"実績事故率 (類似100件)", f"{risk_pct:.1f} %")
+                    st.markdown(f"🔍 うち不履行事例: **{def_count}件**")
+                with c3:
+                    st.metric("完済期待値 (実務評価)", f"{final_expected_success:.1f} %")
+
+                # 改善アクション
+                st.write("### 💡 審査改善へのアクション案")
+                with st.expander("アドバイスの詳細を確認する", expanded=True):
+                    advice = []
+                    if gross >= 1000000: advice.append("⚠️ **金額の再検討**: 可能であれば分割融資または担保の積み増しを。")
+                    if term > dynamic_ceil: advice.append(f"✅ **期間の最適化**: {int(dynamic_ceil)}ヶ月以下への短縮を推奨。")
+                    if current_sba_ratio < 0.80: advice.append("✅ **保証枠の拡大**: 80%以上に引き上げるとリスク加重が半減します。")
+                    if not advice: st.write("✨ 現在の条件は論理的に非常に安定しています。")
+                    else:
+                        for a in advice: st.write(a)
+
+                # 判断要素テーブル
+                st.divider()
+                st.write("### ⚖️ 判断に影響した主要要素")
+                importances = model.get_feature_importance()
+                imp_df = pd.DataFrame({'項目': expected_features, 'raw': importances})
+                imp_df.loc[imp_df['項目'] == 'TermInMonths', 'raw'] *= 0.23
+                imp_df.loc[imp_df['項目'] == 'GrossApproval', 'raw'] *= 1.7
+                imp_df['項目名'] = imp_df['項目'].map(lambda x: name_map.get(x, "その他"))
+                display_imp = imp_df[imp_df['項目名'] != "その他"].groupby('項目名')['raw'].sum().reset_index()
+                display_imp['影響度(%)'] = (display_imp['raw'] / display_imp['raw'].sum() * 100).round(1)
+                st.table(display_imp.sort_values('影響度(%)', ascending=False).set_index('項目名')[['影響度(%)']])
+
             else:
-                status = "安全" if final_expected_success > 92 else "注意" if final_expected_success > 75 else "危険"
+                # ==========================================
+                # 高度解析 (裏面)
+                # ==========================================
+                st.header("🔬 高度数理エビデンス解析")
+                
+                # SHAP解析
+                st.write("#### ⚖️ AIの判断根拠 (SHAP Waterfall)")
+                explainer = shap.TreeExplainer(model)
+                shap_values = explainer(input_df)
+                shap_values.values = -shap_values.values
+                shap_values.feature_names = [name_map.get(n, n) for n in expected_features]
+                
+                fig, ax = plt.subplots(figsize=(10, 6))
+                set_japanese_font()
+                shap.plots.waterfall(shap_values[0], show=False)
+                st.pyplot(plt.gcf())
+                
+                st.divider()
 
-            if sba_bonus_flag:
-                st.success(f"🛡️ **【保全インセンティブ適用】** 保証率80%超により高額融資リスクを50%軽減。")
-            if 500000 <= gross < 1000000:
-                st.info(f"📂 **【中規模案件】** 50万ドル超。リスク加重適用中。")
-            if term > dynamic_ceil:
-                st.warning(f"⏳ **【期間超過】** 適正上限（{int(dynamic_ceil)}ヶ月）を超過。")
+                # マートン・モデル
+                st.write("#### 📉 理論的倒産距離 (Merton Model)")
+                vol = st.slider("想定資産ボラティリティ (%)", 10, 100, 30) / 100
+                asset = float(gross) * 1.5
+                t_m = float(term) / 12
+                dd = (np.log(asset / gross) + (rate/100 - 0.5 * vol**2) * t_m) / (vol * np.sqrt(t_m))
+                
+                col_m1, col_m2 = st.columns(2)
+                with col_m1:
+                    st.metric("倒産距離 (DD)", f"{dd:.2f}")
+                    st.metric("デフォルト確率 (EDF)", f"{stats.norm.cdf(-dd)*100:.2f} %")
+                with col_m2:
+                    x = np.linspace(-4, 4, 100)
+                    y = stats.norm.pdf(x, 0, 1)
+                    fig2, ax2 = plt.subplots(figsize=(6, 3))
+                    ax2.plot(x, y, color="gray")
+                    ax2.fill_between(x, y, where=(x < -dd), color='red', alpha=0.5)
+                    ax2.axvline(-dd, color='red', linestyle='--')
+                    st.pyplot(fig2)
 
-            c1, c2, c3 = st.columns(3)
-            with c1:
-                st.metric("実効リスク指数", f"{combined_risk * 100:.2f} %")
-                reasons = []
-                if gross >= 1000000: reasons.append("・100万ドル超の高額融資")
-                elif gross >= 500000: reasons.append("・50万ドル超の中規模案件")
-                if rate >= 20.0: reasons.append("・20%超の高金利")
-                if term > dynamic_ceil: reasons.append("・返済期間の超過")
-                if sba_bonus_flag: reasons.append("・（緩和）80%超の強固な保証")
+                st.divider()
 
-                if status == "安全": st.success("総合判定: ✅ 安全")
-                elif status == "注意":
-                    st.warning("総合判定: ⚠️ 注意")
-                    for r in reasons: st.caption(f":orange[{r}]")
-                else:
-                    st.error("総合判定: 🚨 危険 (要精査)")
-                    for r in reasons: st.caption(f":red[{r}]")
+                # 金利感度
+                st.write("#### 🧪 金利感度シミュレーション")
+                sim_rates = np.linspace(5.0, 30.0, 15)
+                sim_probs = [100 * (1 - model.predict_proba(Pool(input_df.assign(InitialInterestRate=r), cat_features=cat_idx))[0][1]) for r in sim_rates]
+                fig3, ax3 = plt.subplots(figsize=(10, 4))
+                ax3.plot(sim_rates, sim_probs, '-o', color="#0078D4", linewidth=2)
+                ax3.axvline(x=rate, color='red', linestyle='--')
+                st.pyplot(fig3)
 
-            with c2:
-                st.metric(f"実績事故率 (類似100件)", f"{risk_pct:.1f} %")
-                st.markdown(f"🔍 うち不履行事例: **{def_count}件**")
-            with c3:
-                st.metric("完済期待値 (実務評価)", f"{final_expected_success:.1f} %")
-
-            # --- E. 改善アクション ---
-            st.write("### 💡 審査改善へのアクション案")
-            with st.expander("アドバイスの詳細を確認する", expanded=True):
-                advice = []
-                if gross >= 1000000: advice.append("⚠️ **金額の再検討**: 可能であれば分割融資または担保の積み増しを。")
-                if term > dynamic_ceil: advice.append(f"✅ **期間の最適化**: {int(dynamic_ceil)}ヶ月以下への短縮を推奨。")
-                if current_sba_ratio < 0.80: advice.append("✅ **保証枠の拡大**: 80%以上に引き上げるとリスク加重が半減します。")
-                if not advice: st.write("✨ 現在の条件は論理的に非常に安定しています。")
-                else:
-                    for a in advice: st.write(a)
-
-            # --- F. 判断要素（調整後の割合表示） ---
-            st.divider()
-            st.write("### ⚖️ 判断に影響した主要要素")
-            importances = model.get_feature_importance()
-            imp_df = pd.DataFrame({'項目': expected_features, 'raw': importances})
-            
-            # 重要度のカスタム調整（期間の影響を抑え、融資額を高める）
-            imp_df.loc[imp_df['項目'] == 'TermInMonths', 'raw'] *= 0.23
-            imp_df.loc[imp_df['項目'] == 'GrossApproval', 'raw'] *= 1.7
-            imp_df.loc[imp_df['項目'] == 'SBAGuaranteedApproval', 'raw'] *= 0.8
-            imp_df.loc[imp_df['項目'] == 'NaicsSector', 'raw'] *= 0.5
-            imp_df.loc[imp_df['項目'] == 'InitialInterestRate', 'raw'] *= 0.9
-
-            imp_df['項目名'] = imp_df['項目'].map(lambda x: name_map.get(x, "その他"))
-            display_imp = imp_df[imp_df['項目名'] != "その他"].groupby('項目名')['raw'].sum().reset_index()
-            display_imp['影響度(%)'] = (display_imp['raw'] / display_imp['raw'].sum() * 100).round(1)
-            st.table(display_imp.sort_values('影響度(%)', ascending=False).set_index('項目名')[['影響度(%)']])
-
-            # --- 高度解析 (裏面) ---
-        else
-            st.header("🔬 高度数理エビデンス解析")
-            
-            # 1. SHAP解析 (横棒・反転・文字化け完全対策)
-            st.write("#### ⚖️ AIの判断根拠 (SHAP Waterfall)")
-            st.caption("※ 右側(赤)が完済に寄与する要因、左側(青)が不履行リスクを高める要因です。")
-            
-            explainer = shap.TreeExplainer(model)
-            shap_values = explainer(input_df)
-            
-            # 反転：モデルの出力(1=不履行)を(正=完済)に入れ替える
-            shap_values.values = -shap_values.values
-            # 日本語ラベル適用
-            shap_values.feature_names = [name_map.get(n, n) for n in expected_features]
-            
-            fig, ax = plt.subplots(figsize=(10, 6))
-            # グラフ描画直前のフォント強制設定
-            plt.rcParams['font.family'] = ['Heiti TC', 'MS Gothic', 'Hiragino Sans', 'IPAexGothic', 'sans-serif']
-            
-            # Waterfall図の描画
-            shap.plots.waterfall(shap_values[0], show=False)
-            plt.xlabel("完済への寄与度 (SHAP Value)", fontsize=10)
-            st.pyplot(plt.gcf())
-    
-            st.divider()
-    
-            # 2. マートン・モデル (スライダー連動)
-            st.write("#### 📉 理論的倒産距離 (Merton Model)")
-            vol = st.slider("想定資産ボラティリティ (%)", 10, 100, 30) / 100
-            asset = float(gross) * 1.5
-            t_m = float(term) / 12
-            dd = (np.log(asset / gross) + (rate/100 - 0.5 * vol**2) * t_m) / (vol * np.sqrt(t_m))
-            
-            col_m1, col_m2 = st.columns(2)
-            with col_m1:
-                st.metric("倒産距離 (DD)", f"{dd:.2f}")
-                st.metric("デフォルト確率 (EDF)", f"{stats.norm.cdf(-dd)*100:.2f} %")
-                st.caption("※ DDが1.0を下回ると、統計的な破綻リスクが急増します。")
-            with col_m2:
-                x = np.linspace(-4, 4, 100)
-                y = stats.norm.pdf(x, 0, 1)
-                fig2, ax2 = plt.subplots(figsize=(6, 3))
-                ax2.plot(x, y, color="gray")
-                ax2.fill_between(x, y, where=(x < -dd), color='red', alpha=0.5)
-                ax2.axvline(-dd, color='red', linestyle='--')
-                ax2.set_title("Asset Distribution vs Default Point")
-                st.pyplot(fig2)
-    
-            st.divider()
-    
-            # 3. What-if 分析
-            st.write("#### 🧪 金利感度シミュレーション")
-            sim_rates = np.linspace(5.0, 30.0, 15)
-            sim_probs = [100 * (1 - model.predict_proba(Pool(input_df.assign(InitialInterestRate=r), cat_features=cat_idx))[0][1]) for r in sim_rates]
-            
-            fig3, ax3 = plt.subplots(figsize=(10, 4))
-            ax3.plot(sim_rates, sim_probs, '-o', color="#0078D4", linewidth=2)
-            ax3.axvline(x=rate, color='red', linestyle='--', label=f'現在値 ({rate}%)')
-            ax3.set_ylabel("予測完済確率 (%)")
-            ax3.set_xlabel("設定金利 (%)")
-            ax3.grid(True, alpha=0.3)
-            ax3.legend()
-            st.pyplot(fig3)
         except Exception as e:
             st.error(f"分析エラー: {e}")
