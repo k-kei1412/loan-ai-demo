@@ -253,7 +253,7 @@ if st.session_state.clicked:
                 
                 c1, c2, c3 = st.columns(3)
                 with c1:
-                     st.metric("実効リスク指数", f"{combined_risk * 100:.2f} %")
+                    st.metric("実効リスク指数", f"{combined_risk * 100:.2f} %")
                     reasons = []
                     if gross >= 1000000: reasons.append("・100万ドル超の高額融資")
                     if rate >= 20.0: reasons.append("・20%超の高金利")
