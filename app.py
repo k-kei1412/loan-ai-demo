@@ -26,7 +26,7 @@ def set_japanese_font():
 
 set_japanese_font()
 
-# --- 業界定義（解析でも使うため共通変数として定義） ---
+# --- 業界定義 ---
 sectors_map = {
     "accommodation": "宿泊・飲食サービス業", "administrative": "運営支援・廃棄物処理",
     "agriculture": "農業・林業・漁業", "arts": "芸術・娯楽・レクリエーション",
@@ -57,6 +57,7 @@ def load_resources():
         target = "train.csv" if os.path.exists("train.csv") else "train (4).csv"
         df = pd.read_csv(target)
         df['NaicsSector'] = df['NaicsSector'].astype(str)
+        # 内部計算用の保証率（学習データ側）
         df['SBA_Ratio'] = (df['SBAGuaranteedApproval'] / df['GrossApproval']).fillna(0)
         return model, df, target
     except:
@@ -70,14 +71,16 @@ graph_name_map = {
     "TermInMonths": "Loan Term", "GrossApproval": "Loan Amount", "InitialInterestRate": "Interest Rate", 
     "NaicsSector": "Industry Sector", "SBAGuaranteedApproval": "SBA Guaranty", "CollateralInd": "Collateral",
     "ApprovalFiscalYear": "Fiscal Year", "Subprogram": "Subprogram", "FixedOrVariableInterestInd": "Rate Type",
-    "BusinessAge": "Business Age", "CongressionalDistrict": "District", "BusinessType": "Business Type", "JobsSupported": "Jobs Created"
+    "BusinessAge": "Business Age", "CongressionalDistrict": "District", "BusinessType": "Business Type", "JobsSupported": "Jobs Created",
+    "SBA_Ratio": "Guaranty Rate" # 追加
 }
 
 table_name_map = {
     "TermInMonths": "返済期間", "GrossApproval": "融資額", "InitialInterestRate": "金利", 
     "NaicsSector": "業界セクター", "SBAGuaranteedApproval": "保証額", "CollateralInd": "担保有無",
     "BusinessAge": "事業歴", "BusinessType": "法人形態", "JobsSupported": "雇用創出数",
-    "Subprogram": "支援プログラム", "FixedOrVariableInterestInd": "金利タイプ", "CongressionalDistrict": "選挙区(地域)"
+    "Subprogram": "支援プログラム", "FixedOrVariableInterestInd": "金利タイプ", "CongressionalDistrict": "選挙区(地域)",
+    "SBA_Ratio": "保証率" # 追加
 }
 
 def get_japanese_sector(en_text):
@@ -95,7 +98,7 @@ def click_button():
 
 # --- サイドバー入力 ---
 st.sidebar.header("📋 申請者情報入力")
-app_mode = st.sidebar.radio("📊 表示モード切替", ["総合報告", "高度解析"])
+app_mode = st.sidebar.radio("📊 表示モード切替", ["総合報告書", "数理モデル解析"])
 
 with st.sidebar:
     st.divider()
@@ -110,20 +113,17 @@ with st.sidebar:
     b_type = st.selectbox("法人形態", ["株式会社 (CORPORATION)", "個人事業主 (INDIVIDUAL)", "パートナーシップ (PARTNERSHIP)"])
     b_type_val = b_type.split("(")[1].replace(")", "")
     
-    # 産業セクターの選択（修正ポイント：一箇所に統合）
     if not train_df.empty:
         unique_en_sectors = sorted(train_df['NaicsSector'].unique())
         display_options = [get_japanese_sector(s) for s in unique_en_sectors]
         selected_jp = st.selectbox("産業セクター", options=display_options)
         sector_en = unique_en_sectors[display_options.index(selected_jp)]
         
-        # 選択された業種の英語キーを逆引きして標準値を表示
         vix_key = ""
         for k, v in sectors_map.items():
             if v == selected_jp:
                 vix_key = k
                 break
-        
         standard_vix = sector_vix_map.get(vix_key, 30)
         st.info(f"💡 この業界の標準ボラティリティは **{standard_vix}%** です")
     else:
@@ -147,14 +147,23 @@ if st.session_state.clicked:
         try:
             current_sba_ratio = sba / gross if gross > 0 else 0
             
-            # --- 入力データの構築 ---
+            # --- 【修正点】入力データの構築に SBA_Ratio を追加 ---
             input_data = {
-                "GrossApproval": float(gross), "SBAGuaranteedApproval": float(sba),
-                "InitialInterestRate": float(rate), "TermInMonths": float(term),
-                "NaicsSector": str(sector_en), "ApprovalFiscalYear": 2024.0, "Subprogram": "Guaranty",
-                "FixedOrVariableInterestInd": rate_type_val, "CongressionalDistrict": 10.0,
-                "BusinessType": b_type_val, "BusinessAge": b_age_val,
-                "RevolverStatus": 0.0, "JobsSupported": float(jobs), "CollateralInd": str(collateral_val)
+                "GrossApproval": float(gross), 
+                "SBAGuaranteedApproval": float(sba),
+                "SBA_Ratio": float(current_sba_ratio), # AIが直接見れるように追加
+                "InitialInterestRate": float(rate), 
+                "TermInMonths": float(term),
+                "NaicsSector": str(sector_en), 
+                "ApprovalFiscalYear": 2024.0, 
+                "Subprogram": "Guaranty",
+                "FixedOrVariableInterestInd": rate_type_val, 
+                "CongressionalDistrict": 10.0,
+                "BusinessType": b_type_val, 
+                "BusinessAge": b_age_val,
+                "RevolverStatus": 0.0, 
+                "JobsSupported": float(jobs), 
+                "CollateralInd": str(collateral_val)
             }
             
             input_df = pd.DataFrame([input_data])
@@ -175,9 +184,8 @@ if st.session_state.clicked:
             train_num = search_pool[search_features].fillna(0).copy()
             train_num["TermInMonths"] = np.log1p(train_num["TermInMonths"])
             
-            input_num = input_df[["GrossApproval", "InitialInterestRate", "TermInMonths"]].copy()
+            input_num = input_df[["GrossApproval", "InitialInterestRate", "TermInMonths", "SBA_Ratio"]].copy()
             input_num["TermInMonths"] = np.log1p(input_num["TermInMonths"])
-            input_num["SBA_Ratio"] = current_sba_ratio
             
             scaler = StandardScaler()
             weights = np.array([1.2, 1.0, 1.5, 2.0]) 
@@ -214,8 +222,7 @@ if st.session_state.clicked:
             combined_risk = (base_risk_idx * sba_offset) + term_gap + gross_risk + rate_risk
             final_expected_success = max(5.0, min(98.5, (1.0 - combined_risk) * 100))
 
-            if app_mode == "総合報告":
-                # --- 表面の表示内容はそのまま ---
+            if app_mode == "総合報告書":
                 st.subheader("🏁 総合審査報告書")
                 st.write("### 🔍 実務者への重点確認事項")
                 
