@@ -71,7 +71,7 @@ graph_name_map = {
     "TermInMonths": "Loan Term", "GrossApproval": "Loan Amount", "InitialInterestRate": "Interest Rate", 
     "NaicsSector": "Industry Sector", "SBAGuaranteedApproval": "SBA Guaranty", "CollateralInd": "Collateral",
     "ApprovalFiscalYear": "Fiscal Year", "Subprogram": "Subprogram", "FixedOrVariableInterestInd": "Rate Type",
-    "BusinessAge": "Business Age", "CongressionalDistrict": "District", "BusinessType": "Business Type", "JobsSupported": "Jobs Created",
+    "BusinessAge": "Business Age", "CongressionalDistrict": "Location Code", "BusinessType": "Business Type", "JobsSupported": "Jobs Created",
     "SBA_Ratio": "Guaranty Rate" # 追加
 }
 
@@ -79,7 +79,7 @@ table_name_map = {
     "TermInMonths": "返済期間", "GrossApproval": "融資額", "InitialInterestRate": "金利", 
     "NaicsSector": "業界セクター", "SBAGuaranteedApproval": "保証額", "CollateralInd": "担保有無",
     "BusinessAge": "事業歴", "BusinessType": "法人形態", "JobsSupported": "雇用創出数",
-    "Subprogram": "支援プログラム", "FixedOrVariableInterestInd": "金利タイプ", "CongressionalDistrict": "選挙区(地域)",
+    "Subprogram": "支援プログラム", "FixedOrVariableInterestInd": "金利タイプ", "CongressionalDistrict": "地域区分（所在地区）",
     "SBA_Ratio": "保証率" # 追加
 }
 
