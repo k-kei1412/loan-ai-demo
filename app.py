@@ -147,11 +147,10 @@ if st.session_state.clicked:
         try:
             current_sba_ratio = sba / gross if gross > 0 else 0
             
-            # --- 【修正点】入力データの構築に SBA_Ratio を追加 ---
+            # --- 入力データの構築 ---
             input_data = {
                 "GrossApproval": float(gross), 
                 "SBAGuaranteedApproval": float(sba),
-                "SBA_Ratio": float(current_sba_ratio), # AIが直接見れるように追加
                 "InitialInterestRate": float(rate), 
                 "TermInMonths": float(term),
                 "NaicsSector": str(sector_en), 
@@ -166,13 +165,19 @@ if st.session_state.clicked:
                 "CollateralInd": str(collateral_val)
             }
             
-            input_df = pd.DataFrame([input_data])
+            # AI予測用のDataFrame（モデルが学習した時の列名・順序のみに制限）
+            input_df_for_ai = pd.DataFrame([input_data])
             for col in expected_features:
-                if col not in input_df.columns: input_df[col] = 0.0
-            input_df = input_df[expected_features]
+                if col not in input_df_for_ai.columns:
+                    input_df_for_ai[col] = 0.0
+            input_df_for_ai = input_df_for_ai[expected_features]
             
-            cat_idx = [i for i, col in enumerate(input_df.columns) if input_df[col].dtype == 'object']
-            preds = model.predict_proba(Pool(input_df, cat_features=cat_idx))
+            # 統計表示や類似検索用のDataFrame（SBA_Ratioを含む）
+            input_df_full = input_df_for_ai.copy()
+            input_df_full["SBA_Ratio"] = current_sba_ratio
+            
+            cat_idx = [i for i, col in enumerate(input_df_for_ai.columns) if input_df_for_ai[col].dtype == 'object']
+            preds = model.predict_proba(Pool(input_df_for_ai, cat_features=cat_idx))
             raw_proba = preds[0][1] if len(preds) > 0 else 0.5
 
             # --- 類似事例検索 ---
@@ -184,8 +189,13 @@ if st.session_state.clicked:
             train_num = search_pool[search_features].fillna(0).copy()
             train_num["TermInMonths"] = np.log1p(train_num["TermInMonths"])
             
-            input_num = input_df[["GrossApproval", "InitialInterestRate", "TermInMonths", "SBA_Ratio"]].copy()
-            input_num["TermInMonths"] = np.log1p(input_num["TermInMonths"])
+            # 検索用数値データの構築（SBA_Ratioを含む）
+            input_num = pd.DataFrame([{
+                "GrossApproval": float(gross),
+                "InitialInterestRate": float(rate),
+                "TermInMonths": np.log1p(float(term)),
+                "SBA_Ratio": float(current_sba_ratio)
+            }])
             
             scaler = StandardScaler()
             weights = np.array([1.2, 1.0, 1.5, 2.0]) 
@@ -221,7 +231,7 @@ if st.session_state.clicked:
             sba_offset = 0.65 if current_sba_ratio >= 0.75 else 0.85 if current_sba_ratio >= 0.50 else 1.0
             combined_risk = (base_risk_idx * sba_offset) + term_gap + gross_risk + rate_risk
             final_expected_success = max(5.0, min(98.5, (1.0 - combined_risk) * 100))
-
+            
             if app_mode == "総合報告書":
                 st.subheader("🏁 総合審査報告書")
                 st.write("### 🔍 実務者への重点確認事項")
