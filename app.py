@@ -214,7 +214,7 @@ if st.session_state.clicked:
             combined_risk = (base_risk_idx * sba_offset) + term_gap + gross_risk + rate_risk
             final_expected_success = max(5.0, min(98.5, (1.0 - combined_risk) * 100))
 
-            if app_mode == "総合報告 (表面)":
+            if app_mode == "総合報告":
                 # --- 表面の表示内容はそのまま ---
                 st.subheader("🏁 総合審査報告書")
                 st.write("### 🔍 実務者への重点確認事項")
@@ -293,9 +293,9 @@ if st.session_state.clicked:
                 st.dataframe(merged_display.style.apply(style_row, axis=1), column_order=("状況", "融資額", "金利", "返済期間"), use_container_width=True)
 
             else:
-                # --- 高度解析 (裏面) ---
-                st.header("🔬 高度数理エビデンス解析")
-                st.write("#### ⚖️ AIの判断根拠 (SHAP Waterfall)")
+                # --- 高度解析 ---
+                st.header("🔬 数理解析")
+                st.write("#### ⚖️ AIの判断根拠 (SHAP解析)")
                 explainer = shap.TreeExplainer(model)
                 shap_values = explainer(input_df)
                 shap_values.values = -shap_values.values 
