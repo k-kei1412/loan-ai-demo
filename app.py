@@ -248,10 +248,17 @@ if st.session_state.clicked:
                     st.success(f"🛡️ **【保全インセンティブ適用】** 保証率80%超により高額融資リスクを50%軽減。")
                 if 500000 <= gross < 1000000:
                     st.info(f"📂 **【中規模案件】** 50万ドル超の中堅企業向け融資。リスク加重適用中。")
+                if term > dynamic_ceil:
+                    st.warning(f"⏳ **【期間超過】** 適正上限（{int(dynamic_ceil)}ヶ月）を超過。")
                 
                 c1, c2, c3 = st.columns(3)
                 with c1:
-                    st.metric("実効リスク指数", f"{combined_risk * 100:.2f} %")
+                     st.metric("実効リスク指数", f"{combined_risk * 100:.2f} %")
+                    reasons = []
+                    if gross >= 1000000: reasons.append("・100万ドル超の高額融資")
+                    if rate >= 20.0: reasons.append("・20%超の高金利")
+                    if term > dynamic_ceil: reasons.append("・返済期間の超過")
+
                     if status == "安全": st.success("総合判定: ✅ 安全")
                     elif status == "注意": st.warning("総合判定: ⚠️ 注意")
                     else: st.error("総合判定: 🚨 危険 (要精査)")
