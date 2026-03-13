@@ -80,7 +80,7 @@ table_name_map = {
     "NaicsSector": "業界セクター", "SBAGuaranteedApproval": "保証額", "CollateralInd": "担保有無",
     "BusinessAge": "事業歴", "BusinessType": "法人形態", "JobsSupported": "雇用創出数",
     "Subprogram": "支援プログラム", "FixedOrVariableInterestInd": "金利タイプ", "CongressionalDistrict": "地域区分（所在地区）",
-    "SBA_Ratio": "保証率", "ApprovalFiscalYear": "承認年度", "RevolverStatus": "当座貸越枠の有無"
+    "SBA_Ratio": "保証率", "ApprovalFiscalYear": "承認年度", "RevolverStatus": "反復利用の有無"
 }
 
 def get_japanese_sector(en_text):
