@@ -258,12 +258,19 @@ if st.session_state.clicked:
                     if gross >= 1000000: reasons.append("・100万ドル超の高額融資")
                     if rate >= 20.0: reasons.append("・20%超の高金利")
                     if term > dynamic_ceil: reasons.append("・返済期間の超過")
-
                     if status == "安全": st.success("総合判定: ✅ 安全")
-                    elif status == "注意": st.warning("総合判定: ⚠️ 注意")
-                    else: st.error("総合判定: 🚨 危険 (要精査)")
+                    elif status == "注意":
+                        st.warning("総合判定: ⚠️ 注意")
+                        for r in reasons: st.caption(f":orange[{r}]")
+                    else:
+                        st.error("総合判定: 🚨 危険 (要精査)")
+                        for r in reasons: st.caption(f":red[{r}]")
+                    else:
+                        st.error("総合判定: 🚨 危険 (要精査)")
+                        for r in reasons: st.caption(f":red[{r}]")
                 with c2:
                     st.metric(f"実績事故率 (類似100件)", f"{risk_pct:.1f} %")
+                     st.markdown(f"🔍 うち不履行事例: **{def_count}件**")
                 with c3:
                     st.metric("完済期待値 (実務評価)", f"{final_expected_success:.1f} %")
                 st.write("### 💡 審査改善へのアクション案")
