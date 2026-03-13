@@ -268,7 +268,7 @@ if st.session_state.clicked:
                         for r in reasons: st.caption(f":red[{r}]")
                 with c2:
                     st.metric(f"実績事故率 (類似100件)", f"{risk_pct:.1f} %")
-                     st.markdown(f"🔍 うち不履行事例: **{def_count}件**")
+                    st.markdown(f"🔍 うち不履行事例: **{def_count}件**")
                 with c3:
                     st.metric("完済期待値 (実務評価)", f"{final_expected_success:.1f} %")
                 st.write("### 💡 審査改善へのアクション案")
