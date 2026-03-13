@@ -283,7 +283,7 @@ if st.session_state.clicked:
                 imp_df.loc[imp_df['項目'] == 'TermInMonths', 'raw'] *= 0.6
                 imp_df.loc[imp_df['項目'] == 'GrossApproval', 'raw'] *= 1.6
                 imp_df.loc[imp_df['項目'] == 'SBAGuaranteedApproval', 'raw'] *= 3.3
-                imp_df.loc[imp_df['項目'] == 'NaicsSector', 'raw'] *= 1.3
+                imp_df.loc[imp_df['項目'] == 'NaicsSector', 'raw'] *= 1.5
                 imp_df.loc[imp_df['項目'] == 'InitialInterestRate', 'raw'] *= 1.3
                 
                 imp_df['項目名'] = imp_df['項目'].map(lambda x: table_name_map_v2.get(x, x))
