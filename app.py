@@ -266,9 +266,6 @@ if st.session_state.clicked:
                     else:
                         st.error("総合判定: 🚨 危険 (要精査)")
                         for r in reasons: st.caption(f":red[{r}]")
-                    else:
-                        st.error("総合判定: 🚨 危険 (要精査)")
-                        for r in reasons: st.caption(f":red[{r}]")
                 with c2:
                     st.metric(f"実績事故率 (類似100件)", f"{risk_pct:.1f} %")
                      st.markdown(f"🔍 うち不履行事例: **{def_count}件**")
