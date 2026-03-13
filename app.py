@@ -95,7 +95,7 @@ def click_button():
 
 # --- サイドバー入力 ---
 st.sidebar.header("📋 申請者情報入力")
-app_mode = st.sidebar.radio("📊 表示モード切替", ["総合報告 (表面)", "高度解析 (裏面)"])
+app_mode = st.sidebar.radio("📊 表示モード切替", ["総合報告", "高度解析"])
 
 with st.sidebar:
     st.divider()
@@ -294,7 +294,7 @@ if st.session_state.clicked:
 
             else:
                 # --- 高度解析 ---
-                st.header("🔬 数理解析")
+                st.header("🔬 数理モデルを用いた解析")
                 st.write("#### ⚖️ AIの判断根拠 (SHAP解析)")
                 explainer = shap.TreeExplainer(model)
                 shap_values = explainer(input_df)
