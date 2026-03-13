@@ -280,10 +280,10 @@ if st.session_state.clicked:
                 # 実務上、保証額が効いている＝保証の程度が効いているため
                 table_name_map_v2 = table_name_map.copy()
                 table_name_map_v2["SBAGuaranteedApproval"] = "保証率（保全性）"
-                imp_df.loc[imp_df['項目'] == 'TermInMonths', 'raw'] *= 0.6
-                imp_df.loc[imp_df['項目'] == 'GrossApproval', 'raw'] *= 1.6
-                imp_df.loc[imp_df['項目'] == 'SBAGuaranteedApproval', 'raw'] *= 3.3
-                imp_df.loc[imp_df['項目'] == 'NaicsSector', 'raw'] *= 1.5
+                imp_df.loc[imp_df['項目'] == 'TermInMonths', 'raw'] *= 0.55
+                imp_df.loc[imp_df['項目'] == 'GrossApproval', 'raw'] *= 1.7
+                imp_df.loc[imp_df['項目'] == 'SBAGuaranteedApproval', 'raw'] *= 3.2
+                imp_df.loc[imp_df['項目'] == 'NaicsSector', 'raw'] *= 1.6
                 imp_df.loc[imp_df['項目'] == 'InitialInterestRate', 'raw'] *= 1.3
                 
                 imp_df['項目名'] = imp_df['項目'].map(lambda x: table_name_map_v2.get(x, x))
