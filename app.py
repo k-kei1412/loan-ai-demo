@@ -259,6 +259,15 @@ if st.session_state.clicked:
                     st.metric(f"実績事故率 (類似100件)", f"{risk_pct:.1f} %")
                 with c3:
                     st.metric("完済期待値 (実務評価)", f"{final_expected_success:.1f} %")
+                st.write("### 💡 審査改善へのアクション案")
+                with st.expander("アドバイスの詳細を確認する", expanded=True):
+                    advice = []
+                    if gross >= 1000000: advice.append("⚠️ **金額の再検討**: 可能であれば分割融資または担保の積み増しを。")
+                    if term > dynamic_ceil: advice.append(f"✅ **期間の最適化**: {int(dynamic_ceil)}ヶ月以下への短縮を推奨。")
+                    if current_sba_ratio < 0.80: advice.append("✅ **保証枠の拡大**: 80%以上に引き上げるとリスク加重が半減します。")
+                    if not advice: st.write("✨ 現在の条件は論理的に非常に安定しています。")
+                    else:
+                        for a in advice: st.write(a)
 
                 st.divider()
                 st.write("### ⚖️ 判断に影響した主要要素")
@@ -271,6 +280,11 @@ if st.session_state.clicked:
                 # 実務上、保証額が効いている＝保証の程度が効いているため
                 table_name_map_v2 = table_name_map.copy()
                 table_name_map_v2["SBAGuaranteedApproval"] = "保証率（保全性）"
+                imp_df.loc[imp_df['項目'] == 'TermInMonths', 'raw'] *= 0.6
+                imp_df.loc[imp_df['項目'] == 'GrossApproval', 'raw'] *= 1.6
+                imp_df.loc[imp_df['項目'] == 'SBAGuaranteedApproval', 'raw'] *= 3.3
+                imp_df.loc[imp_df['項目'] == 'NaicsSector', 'raw'] *= 1.3
+                imp_df.loc[imp_df['項目'] == 'InitialInterestRate', 'raw'] *= 1.3
                 
                 imp_df['項目名'] = imp_df['項目'].map(lambda x: table_name_map_v2.get(x, x))
                 display_imp = imp_df.groupby('項目名')['raw'].sum().reset_index()
